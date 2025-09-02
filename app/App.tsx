@@ -13,14 +13,18 @@ import StepTime from "./routes/step-time";
 import Result from "./routes/result";
 import History from "./routes/history";
 import Mypage from "./routes/mypage";
+import HistoryDetail from "./routes/HistoryDetail";   // ✅ 추가
 import { useAuthStore } from "@/store/authStore";
 
 /** 보호 라우트: 'token' 또는 'isAuthed' 만으로 통과 (user까지 기다리지 않음) */
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { token, isAuthed } = useAuthStore();
+  const { token, isAuthed, initialized } = useAuthStore();
   const loc = useLocation();
 
-  const authed = !!token || isAuthed; // ✅ user 요구 제거
+  // 초기화 전엔 판단하지 않음 (초기 깜빡임/오판 방지)
+  if (!initialized) return null;
+
+  const authed = !!token || isAuthed;
 
   if (!authed) {
     return (
@@ -36,7 +40,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 /** 이미 로그인 상태면 /login, /signup 접근 막기 */
 function LoginGuard({ children }: { children: React.ReactNode }) {
   const { token, isAuthed } = useAuthStore();
-  const authed = !!token || isAuthed; // ✅ user 요구 제거
+  const authed = !!token || isAuthed;
   if (authed) return <Navigate to="/mypage" replace />;
   return <>{children}</>;
 }
@@ -64,6 +68,16 @@ export default function App() {
             </RequireAuth>
           }
         />
+        {/* ✅ 상세 라우트 추가 */}
+        <Route
+          path="/history/detail/:id"
+          element={
+            <RequireAuth>
+              <HistoryDetail />
+            </RequireAuth>
+          }
+        />
+
         <Route
           path="/mypage"
           element={

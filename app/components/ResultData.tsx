@@ -1,3 +1,4 @@
+// components/ResultData.tsx
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -6,6 +7,8 @@ import {
   MapPin,
   Sparkles,
   Clock3,
+  Heart,
+  Bookmark,
 } from "lucide-react";
 
 import {
@@ -15,10 +18,19 @@ import {
   AccordionTrigger,
 } from "./ui/accordion";
 import { Card } from "./ui/card";
-import { Button } from "./ui/button";
 
-/** 외부에서 data: 추천 결과 배열을 내려줌 */
-export function ResultData({ data }: { data: any[] }) {
+/** 외부에서 data: 추천 결과 배열을 내려줌
+ *  ✅ 위시리스트/북마크 지원 (localStorage)
+ *  - wishlist key:   "travia:wishlist"
+ *  - bookmarks key:  "travia:bookmarks"
+ */
+export function ResultData({
+                             data,
+                             surveyId, // 같은 설문 내에서 특정 추천(index)을 북마크하려면 전달
+                           }: {
+  data: any[];
+  surveyId?: number | string;
+}) {
   const [index, setIndex] = useState(0);
 
   // guard
@@ -30,14 +42,64 @@ export function ResultData({ data }: { data: any[] }) {
     // 키보드 좌/우로 페이지 이동
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") setIndex((v) => Math.max(0, v - 1));
-      if (e.key === "ArrowRight")
-        setIndex((v) => Math.min(total - 1, v + 1));
+      if (e.key === "ArrowRight") setIndex((v) => Math.min(total - 1, v + 1));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [total]);
 
   const dayEntries = useMemo(() => normalizeSchedule(cur?.schedule), [cur]);
+
+  // ---- 위시리스트 / 북마크 로컬 스토리지 훅 ----
+  const wishKey = "travia:wishlist";
+  const bookmarkKey = "travia:bookmarks";
+
+  const isWishlisted = useMemo(() => {
+    if (!cur) return false;
+    const list: WishlistItem[] = readLS(wishKey, []);
+    return list.some((w) => eqCityCountry(w, cur));
+  }, [cur]);
+
+  const isBookmarked = useMemo(() => {
+    if (!cur) return false;
+    const list: BookmarkItem[] = readLS(bookmarkKey, []);
+    return list.some((b) => eqBookmark(b, surveyId, index, cur));
+  }, [cur, index, surveyId]);
+
+  const toggleWishlist = () => {
+    if (!cur) return;
+    const list: WishlistItem[] = readLS(wishKey, []);
+    const exists = list.findIndex((w) => eqCityCountry(w, cur));
+    if (exists >= 0) {
+      list.splice(exists, 1);
+    } else {
+      list.push({
+        city: cur.city ?? "",
+        country: cur.country ?? "",
+        reason: cur.reason ?? "",
+        addedAt: Date.now(),
+      });
+    }
+    writeLS(wishKey, list);
+  };
+
+  const toggleBookmark = () => {
+    if (!cur) return;
+    const list: BookmarkItem[] = readLS(bookmarkKey, []);
+    const idx = list.findIndex((b) => eqBookmark(b, surveyId, index, cur));
+    if (idx >= 0) {
+      list.splice(idx, 1);
+    } else {
+      list.push({
+        surveyId: surveyId ?? null,
+        resultIndex: index,
+        city: cur.city ?? "",
+        country: cur.country ?? "",
+        addedAt: Date.now(),
+      });
+    }
+    writeLS(bookmarkKey, list);
+  };
 
   if (!total) {
     return (
@@ -57,38 +119,66 @@ export function ResultData({ data }: { data: any[] }) {
           </div>
           <div>
             <h2 className="text-2xl sm:text-[26px] font-extrabold tracking-tight text-zinc-900">
-              {/* 도시, 국가 순서가 더 자연스러움 */}
               {cur?.city && cur?.country
                 ? `${cur.city}, ${cur.country}`
                 : cur?.city || cur?.country || "추천 지역"}
             </h2>
-            <p className="text-sm text-zinc-500">
-              지난 추천을 빠르게 다시 확인해 보세요.
-            </p>
+            <p className="text-sm text-zinc-500">지난 추천을 빠르게 다시 확인해 보세요.</p>
           </div>
         </div>
 
-        {/* Pager */}
-        <div className="flex items-center gap-3 ml-auto">
+        {/* 우측 컨트롤: 위시/북마크 + Pager */}
+        <div className="flex items-center gap-2 md:gap-3 ml-auto">
+          {/* 위시리스트 토글 */}
           <IconGhostButton
-            aria-label="이전"
-            disabled={index <= 0}
-            onClick={() => setIndex((v) => Math.max(0, v - 1))}
+            aria-label="위시리스트에 추가"
+            onClick={toggleWishlist}
+            title={isWishlisted ? "위시리스트에서 제거" : "위시리스트에 추가"}
           >
-            <ChevronLeft className="w-4 h-4 text-violet-700" />
+            <Heart
+              className={[
+                "w-4 h-4",
+                isWishlisted ? "text-rose-600 fill-rose-500/20" : "text-rose-500",
+              ].join(" ")}
+            />
           </IconGhostButton>
 
-          <span className="min-w-[64px] text-center text-sm text-zinc-500">
-            <strong className="text-zinc-800">{index + 1}</strong> / {total}
-          </span>
-
+          {/* 북마크 토글 */}
           <IconGhostButton
-            aria-label="다음"
-            disabled={index >= total - 1}
-            onClick={() => setIndex((v) => Math.min(total - 1, v + 1))}
+            aria-label="북마크"
+            onClick={toggleBookmark}
+            title={isBookmarked ? "북마크 해제" : "북마크 추가"}
           >
-            <ChevronRight className="w-4 h-4 text-violet-700" />
+            <Bookmark
+              className={[
+                "w-4 h-4",
+                isBookmarked ? "text-amber-600 fill-amber-400/30" : "text-amber-500",
+              ].join(" ")}
+            />
           </IconGhostButton>
+
+          {/* Pager */}
+          <div className="flex items-center gap-2 md:gap-3 pl-1">
+            <IconGhostButton
+              aria-label="이전"
+              disabled={index <= 0}
+              onClick={() => setIndex((v) => Math.max(0, v - 1))}
+            >
+              <ChevronLeft className="w-4 h-4 text-violet-700" />
+            </IconGhostButton>
+
+            <span className="min-w-[64px] text-center text-sm text-zinc-500">
+              <strong className="text-zinc-800">{index + 1}</strong> / {total}
+            </span>
+
+            <IconGhostButton
+              aria-label="다음"
+              disabled={index >= total - 1}
+              onClick={() => setIndex((v) => Math.min(total - 1, v + 1))}
+            >
+              <ChevronRight className="w-4 h-4 text-violet-700" />
+            </IconGhostButton>
+          </div>
         </div>
       </div>
 
@@ -111,7 +201,7 @@ export function ResultData({ data }: { data: any[] }) {
         </Accordion>
       )}
 
-      {/* Day 카드 슬라이더 */}
+      {/* Day 카드 슬라이더 (가로 스크롤바 표시) */}
       <motion.div
         initial={{ opacity: 0, y: 4, filter: "blur(3px)" }}
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -123,16 +213,21 @@ export function ResultData({ data }: { data: any[] }) {
         <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent rounded-r-2xl" />
 
         <div
+          role="region"
+          aria-label="여행 일정 슬라이더"
           className="
-            overflow-x-auto flex gap-4 px-2 py-2
+            overflow-x-auto flex gap-4 px-2 pt-2 pb-3 pr-6
             snap-x snap-mandatory
-            [scrollbar-width:none] [-ms-overflow-style:none]
+            [scrollbar-width:thin] [scrollbar-color:#cfd1dd_transparent]
           "
           style={{ scrollBehavior: "smooth" }}
         >
           <style>{`
-            /* Chrome 스크롤바 숨김 */
-            .snap-x::-webkit-scrollbar{ display:none; }
+            /* WebKit(Chrome/Safari/Edge): 스크롤바 보이도록 + 은은한 스타일 */
+            .snap-x::-webkit-scrollbar { height: 10px; }
+            .snap-x::-webkit-scrollbar-track { background: transparent; }
+            .snap-x::-webkit-scrollbar-thumb { background: #cfd1dd; border-radius: 8px; }
+            .snap-x::-webkit-scrollbar-thumb:hover { background: #babccd; }
           `}</style>
 
           {dayEntries.map((day, i) => (
@@ -141,9 +236,7 @@ export function ResultData({ data }: { data: any[] }) {
 
           {dayEntries.length === 0 && (
             <Card className="snap-start shrink-0 w-full rounded-2xl bg-white ring-1 ring-zinc-200 shadow-sm p-5">
-              <p className="text-zinc-600">
-                일정을 불러올 수 없어요. 추천 이유만 확인할 수 있습니다.
-              </p>
+              <p className="text-zinc-600">일정을 불러올 수 없어요. 추천 이유만 확인할 수 있습니다.</p>
             </Card>
           )}
         </div>
@@ -187,9 +280,7 @@ function DayCard({ label, items }: { label: string; items: DayItem[] }) {
         {items.map((it, idx) => (
           <PlanItem key={idx} time={formatTime(it.time)} activity={it.activity} />
         ))}
-        {items.length === 0 && (
-          <p className="text-sm text-zinc-500">등록된 일정이 없어요.</p>
-        )}
+        {items.length === 0 && <p className="text-sm text-zinc-500">등록된 일정이 없어요.</p>}
       </div>
     </Card>
   );
@@ -208,6 +299,58 @@ function PlanItem({ time, activity }: { time?: string; activity?: string }) {
 }
 
 /* ---------- 유틸 ---------- */
+
+type WishlistItem = {
+  city: string;
+  country: string;
+  reason?: string;
+  addedAt: number;
+};
+
+type BookmarkItem = {
+  surveyId: number | string | null;
+  resultIndex: number;
+  city: string;
+  country: string;
+  addedAt: number;
+};
+
+function readLS<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLS<T>(key: string, value: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
+function eqCityCountry(a: { city?: string; country?: string }, b: any) {
+  return (a.city ?? "").toLowerCase() === (b?.city ?? "").toLowerCase() &&
+    (a.country ?? "").toLowerCase() === (b?.country ?? "").toLowerCase();
+}
+
+function eqBookmark(
+  b: BookmarkItem,
+  surveyId: number | string | null | undefined,
+  resultIndex: number,
+  cur: any
+) {
+  const sidA = b.surveyId ?? null;
+  const sidB = surveyId ?? null;
+  return (
+    sidA === sidB &&
+    b.resultIndex === resultIndex &&
+    eqCityCountry(b, cur)
+  );
+}
 
 /** 서버 schedule 다양한 형태를 관대하게 수용 → [{items:[...]}, ...] */
 function normalizeSchedule(schedule: any): { items: DayItem[] }[] {

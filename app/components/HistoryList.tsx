@@ -1,5 +1,5 @@
 // components/HistoryList.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 
@@ -8,6 +8,25 @@ import { ResultData } from "./ResultData";
 
 import { useAuthStore } from "@/store/authStore";
 import { useTravelStore } from "@/store/travelStore";
+
+/* ======================= 환경/유틸 ======================= */
+
+const API_BASE =
+  import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+
+// 백엔드와 통일: csrf_token
+function getCsrfFromCookie() {
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function buildHeaders(token?: string) {
+  const h: Record<string, string> = { Accept: "application/json" };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
+/* ======================= 타입 ======================= */
 
 type HistoryRow = { survey_id: number; created_at?: string };
 
@@ -18,16 +37,9 @@ type DetailResp = {
   data?: any;
 };
 
-const API_BASE =
-  import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+type RecItem = any; // recommendation 객체 (백엔드 스키마 유동)
 
-/* -------------------- 공통 유틸 -------------------- */
-
-function buildHeaders(token?: string) {
-  const h: Record<string, string> = { Accept: "application/json" };
-  if (token) h.Authorization = `Bearer ${token}`;
-  return h;
-}
+/* ======================= 매핑/표현 보조 ======================= */
 
 function formatBudget(v: unknown): string | undefined {
   if (v == null) return undefined;
@@ -50,9 +62,8 @@ function formatDuration(v?: string): string | undefined {
   return v;
 }
 
-/* -------------------- 매핑 테이블 -------------------- */
+/* ---------- 동행/스타일/선호 매핑(기존 코드 유지) ---------- */
 
-// 동행 유형
 const companionMap: Record<string, { icon: string; value: string }> = {
   alone: { icon: "👤", value: "혼자" },
   solo: { icon: "👤", value: "혼자" },
@@ -62,49 +73,34 @@ const companionMap: Record<string, { icon: string; value: string }> = {
   group: { icon: "👥", value: "단체" },
   pet: { icon: "🐶", value: "반려동물과" },
 };
-
-// 동행 유형 별칭(한글/영문/공백/숫자 코드 등)
 const companionAlias: Record<string, string> = {
-  // 혼자
   "혼자": "alone",
   "1인": "alone",
   "solo": "alone",
   "single": "alone",
   "솔로": "alone",
   "alones": "alone",
-
-  // 커플/연인/부부
   "연인": "couple",
   "커플": "couple",
   "부부": "couple",
   "couple": "couple",
-
-  // 친구/지인
   "친구": "friends",
   "지인": "friends",
   "friends": "friends",
-
-  // 가족/부모/아이
   "가족": "family",
   "패밀리": "family",
   "family": "family",
   "부모님": "family",
   "아이와": "family",
   "아이와함께": "family",
-
-  // 단체/그룹/동료
   "단체": "group",
   "그룹": "group",
   "group": "group",
   "회사동료": "group",
-
-  // 반려동물
   "반려동물": "pet",
   "pet": "pet",
   "withpet": "pet",
 };
-
-// 서버가 숫자 코드로 줄 때 대응
 const companionIndexMap: Record<string, string> = {
   "0": "alone",
   "1": "couple",
@@ -112,8 +108,6 @@ const companionIndexMap: Record<string, string> = {
   "3": "family",
   "4": "group",
 };
-
-// 여행 스타일
 const styleMap: Record<string, string> = {
   foodie: "먹방 여행",
   healing: "힐링 여행",
@@ -126,15 +120,11 @@ const styleMap: Record<string, string> = {
   photo: "사진",
   festival: "축제",
 };
-
-// 이동수단
 const drivingMap: Record<string, { icon: string; value: string }> = {
   public: { icon: "🚌", value: "대중교통" },
   car: { icon: "🚗", value: "자가용 운전" },
   walk: { icon: "🚶", value: "도보 중심" },
 };
-
-// 기온
 const climateMap: Record<string, { icon: string; value: string }> = {
   hot: { icon: "🔥", value: "더운 지역" },
   warm: { icon: "🌤️", value: "따뜻한 지역" },
@@ -142,16 +132,12 @@ const climateMap: Record<string, { icon: string; value: string }> = {
   fresh: { icon: "🍃", value: "선선한 지역" },
   cold: { icon: "❄️", value: "추운 지역" },
 };
-
-// 인파 밀도
 const densityMap: Record<string, { icon: string; value: string }> = {
   calm: { icon: "🌿", value: "여유로운 장소" },
   normal: { icon: "🙂", value: "보통" },
   active: { icon: "⚡", value: "활기찬 장소" },
   crowded: { icon: "👥", value: "붐비는 장소" },
 };
-
-// 대륙
 const continentMap: Record<string, { icon: string; value: string }> = {
   asia: { icon: "🌏", value: "아시아" },
   europe: { icon: "🌍", value: "유럽" },
@@ -161,13 +147,9 @@ const continentMap: Record<string, { icon: string; value: string }> = {
   south_america: { icon: "🌎", value: "남미" },
   middle_east: { icon: "🌍", value: "중동" },
   etc: { icon: "🗺️", value: "기타" },
-
-  // 서버가 한글을 직접 주는 경우
   아시아: { icon: "🌏", value: "아시아" },
   유럽: { icon: "🌍", value: "유럽" },
 };
-
-/* -------------------- 정규화 도우미 -------------------- */
 
 function pick<T>(map: Record<string, T>, v: unknown): T | undefined {
   if (v == null) return undefined;
@@ -175,8 +157,6 @@ function pick<T>(map: Record<string, T>, v: unknown): T | undefined {
   const lower = raw.toLowerCase();
   return map[lower] ?? (map[raw] as T | undefined);
 }
-
-// 여러 필드명 중 존재하는 것 하나 선택
 function pickCompanionField(prefs: any) {
   return (
     prefs?.companion ??
@@ -188,17 +168,12 @@ function pickCompanionField(prefs: any) {
     prefs?.withWhom
   );
 }
-
 function normalizeCompanionKey(v: unknown): string | undefined {
   if (v == null) return undefined;
   const raw = String(v).trim();
   const lower = raw.toLowerCase();
   const compact = lower.replace(/[\s_]/g, "");
-
-  // 숫자코드 → 표준키
   if (companionIndexMap[lower]) return companionIndexMap[lower];
-
-  // 별칭 매핑(원문/소문자/compact 순서)
   return (
     companionAlias[raw] ||
     companionAlias[lower] ||
@@ -206,19 +181,13 @@ function normalizeCompanionKey(v: unknown): string | undefined {
     lower
   );
 }
-
-/** 서버 preferences → 화면용 preferences 로 변환 */
 function humanizePreferences(raw: any = {}) {
-  // 동행 유형
   const compRaw = pickCompanionField(raw);
   const compKey = normalizeCompanionKey(compRaw);
   let comp = compKey ? companionMap[compKey] : undefined;
-  // 낯선 값이지만 값 자체는 있는 경우: 원문 노출
   if (!comp && compRaw != null && String(compRaw).trim() !== "") {
     comp = { icon: "•", value: String(compRaw) };
   }
-
-  // 스타일: 배열/단일 모두 허용 (이미 한글이면 그대로 노출)
   const style =
     Array.isArray(raw.style) || Array.isArray(raw.styles)
       ? (raw.style ?? raw.styles).map((s: string) => styleMap[s] ?? s)
@@ -238,7 +207,7 @@ function humanizePreferences(raw: any = {}) {
   };
 }
 
-/* -------------------- me 보정 -------------------- */
+/* ======================= me 보정 ======================= */
 
 async function ensureUser() {
   const { token, setUser, setAuthed } = useAuthStore.getState();
@@ -252,12 +221,10 @@ async function ensureUser() {
       setUser?.({ id: me.id, nickname: me.nickname, email: me.email });
       setAuthed?.(true);
     }
-  } catch {
-    /* silent */
-  }
+  } catch {/* silent */}
 }
 
-/* -------------------- 메인 컴포넌트 -------------------- */
+/* ======================= 메인 컴포넌트 ======================= */
 
 export default function HistoryList() {
   const navigate = useNavigate();
@@ -278,10 +245,14 @@ export default function HistoryList() {
 
   const [detail, setDetail] = useState<{
     preferences?: any;
-    recommendation?: any;
+    recommendation?: RecItem;
   } | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+
+  // 💜/📌 상태를 한 번에 관리 (현재 사용자 전체 세트)
+  const [wishSet, setWishSet] = useState<Set<number>>(new Set());
+  const [bookmarkSet, setBookmarkSet] = useState<Set<number>>(new Set());
 
   // 토큰/세션은 있는데 닉네임이 비어 있으면 me로 보정
   useEffect(() => {
@@ -289,6 +260,35 @@ export default function HistoryList() {
       void ensureUser();
     }
   }, [token, isAuthed, nickname]);
+
+  // 위시·보관 목록 1회 로드
+  useEffect(() => {
+    if (!ready) return;
+    let abort = false;
+    (async () => {
+      try {
+        const [wRes, bRes] = await Promise.all([
+          fetch(`${API_BASE}/api/wishlist/my`, {
+            headers: buildHeaders(token || undefined),
+            credentials: "include",
+          }),
+          fetch(`${API_BASE}/api/bookmark/my`, {
+            headers: buildHeaders(token || undefined),
+            credentials: "include",
+          }),
+        ]);
+        if (wRes.ok) {
+          const ws = await wRes.json(); // [{ item_id, ... }]
+          if (!abort) setWishSet(new Set<number>(ws.map((x: any) => x.item_id)));
+        }
+        if (bRes.ok) {
+          const bs = await bRes.json();
+          if (!abort) setBookmarkSet(new Set<number>(bs.map((x: any) => x.item_id)));
+        }
+      } catch {/* ignore */}
+    })();
+    return () => { abort = true; };
+  }, [ready, token]);
 
   // 리스트
   useEffect(() => {
@@ -366,15 +366,15 @@ export default function HistoryList() {
 
         const reco: DetailResp = await res.json();
         const recommendation =
-          reco?.recommendation ?? reco?.result ?? reco?.data ?? reco;
+          reco?.recommendation ?? reco?.result ?? reco?.data ?? (reco as any);
 
         const rawPrefs =
-          reco?.preferences ?? recommendation?.preferences ?? {};
+          reco?.preferences ?? (recommendation as any)?.preferences ?? {};
 
         if (!abort) {
           setDetail({
-            preferences: humanizePreferences(rawPrefs), // ← 사람 친화 변환
-            recommendation,
+            preferences: humanizePreferences(rawPrefs),
+            recommendation: recommendation as RecItem,
           });
         }
       } catch (e: any) {
@@ -393,7 +393,90 @@ export default function HistoryList() {
   const total = rows.length;
   const loading = loadingList || loadingDetail;
 
-  /* -------------------- 렌더 분기 -------------------- */
+  // 현재 상세의 추천 ID 추출 (백엔드 스키마 유동성 대비)
+  const currentRecId = useMemo(() => {
+    const d = detail?.recommendation as any;
+    return (
+      d?.id ??
+      d?.rec_id ??
+      d?.recommendation_id ??
+      d?.result_id ??
+      d?.recommend?.id ??
+      null
+    ) as number | null;
+  }, [detail]);
+
+  // 💜 / 📌 현재 상태
+  const wished = currentRecId != null && wishSet.has(currentRecId);
+  const bookmarked = currentRecId != null && bookmarkSet.has(currentRecId);
+
+  // 공통 토글 함수 (낙관적 + 롤백)
+  const toggleMark = async (
+    kind: "wishlist" | "bookmark",
+    next: boolean
+  ) => {
+    if (currentRecId == null) return;
+    const csrf = getCsrfFromCookie();
+    const method = next ? "POST" : "DELETE";
+    const endpoint = `${API_BASE}/api/${kind}`;
+    const body = JSON.stringify({
+      item_type: "recommendation",
+      item_id: currentRecId,
+    });
+
+    // 낙관적 업데이트
+    if (kind === "wishlist") {
+      setWishSet((s) => {
+        const ns = new Set(s);
+        next ? ns.add(currentRecId) : ns.delete(currentRecId);
+        return ns;
+      });
+    } else {
+      setBookmarkSet((s) => {
+        const ns = new Set(s);
+        next ? ns.add(currentRecId) : ns.delete(currentRecId);
+        return ns;
+      });
+    }
+
+    try {
+      const res = await fetch(endpoint, {
+        method,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+          ...buildHeaders(token || undefined),
+        },
+        body,
+      });
+
+      if (res.status === 401) {
+        useAuthStore.getState().logout();
+        navigate(`/login?re_uri=/history`, { replace: true });
+        return;
+      }
+      if (!res.ok) throw new Error(`${kind} failed: ${res.status}`);
+    } catch (e) {
+      // 롤백
+      if (kind === "wishlist") {
+        setWishSet((s) => {
+          const ns = new Set(s);
+          next ? ns.delete(currentRecId!) : ns.add(currentRecId!);
+          return ns;
+        });
+      } else {
+        setBookmarkSet((s) => {
+          const ns = new Set(s);
+          next ? ns.delete(currentRecId!) : ns.add(currentRecId!);
+          return ns;
+        });
+      }
+      alert(`${kind === "wishlist" ? "위시리스트" : "보관함"} 저장에 실패했어요.`);
+    }
+  };
+
+  /* ======================= 렌더 분기 ======================= */
 
   if (error) {
     return (
@@ -420,6 +503,8 @@ export default function HistoryList() {
     );
   }
 
+  /* ======================= 본문 ======================= */
+
   return (
     <HistorySection
       index={Math.min(Math.max(index, 0), Math.max(total - 1, 0))}
@@ -428,7 +513,36 @@ export default function HistoryList() {
       detail={detail}
       onPrev={() => setIndex((v) => Math.max(v - 1, 0))}
       onNext={() => setIndex((v) => Math.min(v + 1, Math.max(total - 1, 0)))}
-      RecommendationSlot={({ data }) => <ResultData data={data} />}
+      // 추천 본문 렌더 슬롯 커스터마이즈: 하트/핀 버튼 오버레이 + 기존 ResultData
+      RecommendationSlot={({ data }) => (
+        <div className="relative">
+          {/* 우측 상단 토글 버튼 그룹 */}
+          {currentRecId != null && (
+            <div className="absolute -top-2 right-0 flex gap-2 z-10">
+              {/* 위시리스트 */}
+              <button
+                onClick={() => toggleMark("wishlist", !wished)}
+                className="rounded-full px-2 py-1 text-xs border border-gray-200 bg-white hover:bg-gray-50 shadow-sm"
+                title={wished ? "위시리스트에서 제거" : "위시리스트에 추가"}
+              >
+                {wished ? "💜 위시" : "🤍 위시"}
+              </button>
+
+              {/* 보관함 */}
+              <button
+                onClick={() => toggleMark("bookmark", !bookmarked)}
+                className="rounded-full px-2 py-1 text-xs border border-gray-200 bg-white hover:bg-gray-50 shadow-sm"
+                title={bookmarked ? "보관함에서 제거" : "보관함에 추가"}
+              >
+                {bookmarked ? "📌 보관" : "📍 보관"}
+              </button>
+            </div>
+          )}
+
+          {/* 기존 추천 결과 렌더 */}
+          <ResultData data={data} />
+        </div>
+      )}
     />
   );
 }
