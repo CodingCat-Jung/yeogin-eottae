@@ -14,21 +14,21 @@ sys.path.insert(0, project_root)
 # --- [수정] 데이터베이스 세션 import ---
 # 데이터베이스 세션을 중앙 관리 파일에서 가져옵니다.
 from app.db.session import SessionLocal
-from app.models.survey import SurveSy
+from app.models.survey import Survey # <<<<<<< [수정] 오타를 바로잡았습니다.
 from app.models.recommendation import Recommendation
 
 # --- 설정 부분 ---
 load_dotenv(dotenv_path=os.path.join(project_root, '.env')) # .env 파일 경로를 명시
 API_KEY = os.getenv("GOOGLE_API_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("SQLALCHEMY_DATABASE_URL")
 
 if not API_KEY or not DATABASE_URL:
-    raise ValueError(".env 파일에 GOOGLE_API_KEY와 DATABASE_URL을 모두 설정해야 합니다.")
+    raise ValueError(".env 파일에 GOOGLE_API_KEY와 SQLALCHEMY_DATABASE_URL을 모두 설정해야 합니다.")
 
 genai.configure(api_key=API_KEY)
 
 
-# --- 프롬프트 정의 (기존과 동일) ---
+# --- 프롬프트 정의 (최종 JSON 형식 반영) ---
 PROMPT_TEMPLATE = """
 당신은 지금부터 Travia 서비스를 위한 고품질의 학습 데이터를 생성하는 AI입니다.
 가상의 사용자 여행 설문과 그에 대한 완-벽한 여행 추천 결과를 JSON 형식으로 생성해야 합니다.
@@ -85,7 +85,7 @@ def save_to_db(data: list):
     try:
         # 1. 가상의 Survey 데이터 생성
         dummy_survey = Survey(
-            username="synthetic_user",
+            nickname="synthetic_user",
             preferences={"info": "This is a synthetic survey from script"}
         )
         db.add(dummy_survey)
