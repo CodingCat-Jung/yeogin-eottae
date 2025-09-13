@@ -1,5 +1,6 @@
 // app/App.tsx
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import AppLayout from "./AppLayout";
 
 import Home from "./routes/index";
@@ -13,23 +14,21 @@ import StepTime from "./routes/step-time";
 import Result from "./routes/result";
 import History from "./routes/history";
 import Mypage from "./routes/mypage";
-import HistoryDetail from "./routes/HistoryDetail";   // ✅ 추가
+import HistoryDetail from "./routes/HistoryDetail";
+import Wishlist from "./routes/Wishlist";
+import Profile from "./routes/profile";           // ✅ 프로필 페이지 추가
 import { useAuthStore } from "@/store/authStore";
 
 /** 보호 라우트: 'token' 또는 'isAuthed' 만으로 통과 (user까지 기다리지 않음) */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { token, isAuthed, initialized } = useAuthStore();
   const loc = useLocation();
-
-  // 초기화 전엔 판단하지 않음 (초기 깜빡임/오판 방지)
   if (!initialized) return null;
-
   const authed = !!token || isAuthed;
-
   if (!authed) {
     return (
       <Navigate
-        to={`/login?re_uri=${encodeURIComponent(loc.pathname)}`}
+        to={`/login?re_uri=${encodeURIComponent(loc.pathname + loc.search)}`}
         replace
       />
     );
@@ -46,6 +45,11 @@ function LoginGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const initialize = useAuthStore((s) => s.initialize);
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
@@ -58,6 +62,7 @@ export default function App() {
         <Route path="/step4" element={<Step4 />} />
         <Route path="/step5" element={<Step5 />} />
         <Route path="/step-time" element={<StepTime />} />
+        <Route path="/result" element={<Result />} /> {/* 필요시 RequireAuth로 감싸기 */}
 
         {/* 보호 라우트 */}
         <Route
@@ -68,7 +73,6 @@ export default function App() {
             </RequireAuth>
           }
         />
-        {/* ✅ 상세 라우트 추가 */}
         <Route
           path="/history/detail/:id"
           element={
@@ -77,7 +81,6 @@ export default function App() {
             </RequireAuth>
           }
         />
-
         <Route
           path="/mypage"
           element={
@@ -86,10 +89,24 @@ export default function App() {
             </RequireAuth>
           }
         />
+        <Route
+          path="/wish"
+          element={
+            <RequireAuth>
+              <Wishlist />
+            </RequireAuth>
+          }
+        />
 
-        {/* 결과 페이지 보호가 필요하면 아래 주석 해제 */}
-        {/* <Route path="/result" element={<RequireAuth><Result /></RequireAuth>} /> */}
-        <Route path="/result" element={<Result />} />
+        {/* ✅ 프로필 수정 라우트 */}
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <Profile />
+            </RequireAuth>
+          }
+        />
 
         {/* 404 */}
         <Route path="*" element={<Navigate to="/" replace />} />

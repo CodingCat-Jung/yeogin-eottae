@@ -1,4 +1,3 @@
-// components/ResultData.tsx
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -9,6 +8,7 @@ import {
   Clock3,
   Heart,
   Bookmark,
+  Check,
 } from "lucide-react";
 
 import {
@@ -19,27 +19,62 @@ import {
 } from "./ui/accordion";
 import { Card } from "./ui/card";
 
-/** 외부에서 data: 추천 결과 배열을 내려줌
- *  ✅ 위시리스트/북마크 지원 (localStorage)
- *  - wishlist key:   "travia:wishlist"
- *  - bookmarks key:  "travia:bookmarks"
- */
-export function ResultData({
-                             data,
-                             surveyId, // 같은 설문 내에서 특정 추천(index)을 북마크하려면 전달
-                           }: {
+/* ===================== Props ===================== */
+type ResultDataProps = {
   data: any[];
   surveyId?: number | string;
-}) {
+  initialIndex?: number;
+  hideInlineActions?: boolean;        // History에서 원형 액션 숨김
+  RightActions?: () => JSX.Element;   // 외부 액션 슬롯
+  onActiveChange?: (index: number, item: any) => void;
+  /** 'card' = 카드 단위 위시, 'recommendation' = 묶음(도시/국가) 단위 위시 */
+  wishMode?: "card" | "recommendation";
+};
+
+/* ===================== Component ===================== */
+export function ResultData({
+                             data,
+                             surveyId,
+                             initialIndex = 0,
+                             hideInlineActions = false,
+                             RightActions,
+                             onActiveChange,
+                             wishMode = "recommendation",
+                           }: ResultDataProps) {
   const [index, setIndex] = useState(0);
 
-  // guard
+  // 위시/북마크 변경 시 강제 리렌더 트리거
+  const [wishNonce, setWishNonce] = useState(0);
+  const bump = () => setWishNonce((n) => n + 1);
+
+  // mount & data 변경 시 초기 인덱스 반영
+  useEffect(() => {
+    const safe = Array.isArray(data) ? data : [];
+    const clamp = Math.max(0, Math.min(initialIndex, Math.max(safe.length - 1, 0)));
+    setIndex(clamp);
+  }, [initialIndex, data]);
+
   const safeData = Array.isArray(data) ? data : [];
   const total = safeData.length;
-  const cur = safeData[Math.min(Math.max(index, 0), Math.max(total - 1, 0))];
+  const safeIndex = Math.min(Math.max(index, 0), Math.max(total - 1, 0));
+  const cur = safeData[safeIndex];
 
+  // 현재 카드의 안전한 키 (id 없을 때 대비)
+  const cardKey = useMemo(() => {
+    const id = cur?.id;
+    if (id != null) return `id:${String(id)}`;
+    const city = (cur?.city ?? "").toLowerCase();
+    const country = (cur?.country ?? "").toLowerCase();
+    return `v2:${String(surveyId ?? "s")}:${safeIndex}:${city}/${country}`;
+  }, [cur?.id, cur?.city, cur?.country, surveyId, safeIndex]);
+
+  // 부모 콜백
   useEffect(() => {
-    // 키보드 좌/우로 페이지 이동
+    onActiveChange?.(safeIndex, cur);
+  }, [safeIndex, cur, onActiveChange]);
+
+  // 키보드 좌/우
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") setIndex((v) => Math.max(0, v - 1));
       if (e.key === "ArrowRight") setIndex((v) => Math.min(total - 1, v + 1));
@@ -48,57 +83,94 @@ export function ResultData({
     return () => window.removeEventListener("keydown", onKey);
   }, [total]);
 
+  // schedule 정규화
   const dayEntries = useMemo(() => normalizeSchedule(cur?.schedule), [cur]);
 
-  // ---- 위시리스트 / 북마크 로컬 스토리지 훅 ----
-  const wishKey = "travia:wishlist";
-  const bookmarkKey = "travia:bookmarks";
+  /* ========== localStorage keys & helpers ========== */
+  const WISH_KEY = "travia:wishlist";        // 묶음 단위 (city/country)
+  const CARD_WISH_KEY = "travia:wish-cards"; // 카드 단위 (cardKey)
+  const BM_KEY = "travia:bookmarks";
 
+  // 외부 탭/컴포넌트에서 바뀐 것도 반영 (storage + 커스텀 이벤트)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key) return;
+      if ([WISH_KEY, CARD_WISH_KEY, BM_KEY].includes(e.key)) bump();
+    };
+    const onCustom = () => bump();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("travia:wishlist-updated", onCustom as EventListener);
+    window.addEventListener("travia:wish-cards-updated", onCustom as EventListener);
+    window.addEventListener("travia:bookmarks-updated", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("travia:wishlist-updated", onCustom as EventListener);
+      window.removeEventListener("travia:wish-cards-updated", onCustom as EventListener);
+      window.removeEventListener("travia:bookmarks-updated", onCustom as EventListener);
+    };
+  }, []);
+
+  /* ========== derived states (wish/bookmark) ========== */
+  // 카드 단위 위시 여부: cardKey 기준
+  const isCardWished = useMemo(() => {
+    const list: WishCardItem[] = readLS(CARD_WISH_KEY, []);
+    return list.some((x) => x.key === cardKey);
+  }, [cardKey, wishNonce]);
+
+  // 묶음 단위 위시 여부: city/country 기준
   const isWishlisted = useMemo(() => {
-    if (!cur) return false;
-    const list: WishlistItem[] = readLS(wishKey, []);
+    const list: WishlistItem[] = readLS(WISH_KEY, []);
     return list.some((w) => eqCityCountry(w, cur));
-  }, [cur]);
+  }, [cur, wishNonce]);
 
+  // 북마크 여부
   const isBookmarked = useMemo(() => {
-    if (!cur) return false;
-    const list: BookmarkItem[] = readLS(bookmarkKey, []);
-    return list.some((b) => eqBookmark(b, surveyId, index, cur));
-  }, [cur, index, surveyId]);
+    const list: BookmarkItem[] = readLS(BM_KEY, []);
+    return list.some((b) => eqBookmark(b, surveyId, safeIndex, cur));
+  }, [cur, safeIndex, surveyId, wishNonce]);
+
+  /* ========== toggles (모두 bump + 커스텀 이벤트 발행) ========== */
+  const toggleCardWishlist = () => {
+    const list: WishCardItem[] = readLS(CARD_WISH_KEY, []);
+    const idx = list.findIndex((x) => x.key === cardKey);
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push({ key: cardKey, snapshot: cur, addedAt: Date.now() });
+    writeLS(CARD_WISH_KEY, list);
+    bump();
+    window.dispatchEvent(new CustomEvent("travia:wish-cards-updated", { detail: { key: cardKey } }));
+  };
 
   const toggleWishlist = () => {
-    if (!cur) return;
-    const list: WishlistItem[] = readLS(wishKey, []);
+    const list: WishlistItem[] = readLS(WISH_KEY, []);
     const exists = list.findIndex((w) => eqCityCountry(w, cur));
-    if (exists >= 0) {
-      list.splice(exists, 1);
-    } else {
+    if (exists >= 0) list.splice(exists, 1);
+    else
       list.push({
-        city: cur.city ?? "",
-        country: cur.country ?? "",
-        reason: cur.reason ?? "",
+        city: cur?.city ?? "",
+        country: cur?.country ?? "",
+        reason: cur?.reason ?? "",
         addedAt: Date.now(),
       });
-    }
-    writeLS(wishKey, list);
+    writeLS(WISH_KEY, list);
+    bump();
+    window.dispatchEvent(new CustomEvent("travia:wishlist-updated"));
   };
 
   const toggleBookmark = () => {
-    if (!cur) return;
-    const list: BookmarkItem[] = readLS(bookmarkKey, []);
-    const idx = list.findIndex((b) => eqBookmark(b, surveyId, index, cur));
-    if (idx >= 0) {
-      list.splice(idx, 1);
-    } else {
+    const list: BookmarkItem[] = readLS(BM_KEY, []);
+    const idx = list.findIndex((b) => eqBookmark(b, surveyId, safeIndex, cur));
+    if (idx >= 0) list.splice(idx, 1);
+    else
       list.push({
         surveyId: surveyId ?? null,
-        resultIndex: index,
-        city: cur.city ?? "",
-        country: cur.country ?? "",
+        resultIndex: safeIndex,
+        city: cur?.city ?? "",
+        country: cur?.country ?? "",
         addedAt: Date.now(),
       });
-    }
-    writeLS(bookmarkKey, list);
+    writeLS(BM_KEY, list);
+    bump();
+    window.dispatchEvent(new CustomEvent("travia:bookmarks-updated"));
   };
 
   if (!total) {
@@ -110,7 +182,7 @@ export function ResultData({
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full" id={`result-${safeIndex}`}>
       {/* 헤더 */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
         <div className="flex items-start gap-3">
@@ -127,53 +199,50 @@ export function ResultData({
           </div>
         </div>
 
-        {/* 우측 컨트롤: 위시/북마크 + Pager */}
+        {/* 우측 컨트롤 */}
         <div className="flex items-center gap-2 md:gap-3 ml-auto">
-          {/* 위시리스트 토글 */}
-          <IconGhostButton
-            aria-label="위시리스트에 추가"
-            onClick={toggleWishlist}
-            title={isWishlisted ? "위시리스트에서 제거" : "위시리스트에 추가"}
-          >
-            <Heart
-              className={[
-                "w-4 h-4",
-                isWishlisted ? "text-rose-600 fill-rose-500/20" : "text-rose-500",
-              ].join(" ")}
-            />
-          </IconGhostButton>
+          {!hideInlineActions && (
+            <>
+              <WishPill
+                active={wishMode === "card" ? isCardWished : isWishlisted}
+                onToggle={wishMode === "card" ? toggleCardWishlist : toggleWishlist}
+              />
+              <IconGhostButton
+                aria-label="북마크"
+                onClick={toggleBookmark}
+                title={isBookmarked ? "북마크 해제" : "북마크 추가"}
+              >
+                <Bookmark
+                  className={[
+                    "w-4 h-4",
+                    isBookmarked ? "text-amber-600 fill-amber-400/30" : "text-amber-500",
+                  ].join(" ")}
+                />
+              </IconGhostButton>
+            </>
+          )}
 
-          {/* 북마크 토글 */}
-          <IconGhostButton
-            aria-label="북마크"
-            onClick={toggleBookmark}
-            title={isBookmarked ? "북마크 해제" : "북마크 추가"}
-          >
-            <Bookmark
-              className={[
-                "w-4 h-4",
-                isBookmarked ? "text-amber-600 fill-amber-400/30" : "text-amber-500",
-              ].join(" ")}
-            />
-          </IconGhostButton>
+          {RightActions && (
+            <div className="flex items-center gap-2 pr-1">
+              <RightActions />
+            </div>
+          )}
 
           {/* Pager */}
           <div className="flex items-center gap-2 md:gap-3 pl-1">
             <IconGhostButton
               aria-label="이전"
-              disabled={index <= 0}
+              disabled={safeIndex <= 0}
               onClick={() => setIndex((v) => Math.max(0, v - 1))}
             >
               <ChevronLeft className="w-4 h-4 text-violet-700" />
             </IconGhostButton>
-
             <span className="min-w-[64px] text-center text-sm text-zinc-500">
-              <strong className="text-zinc-800">{index + 1}</strong> / {total}
+              <strong className="text-zinc-800">{safeIndex + 1}</strong> / {total}
             </span>
-
             <IconGhostButton
               aria-label="다음"
-              disabled={index >= total - 1}
+              disabled={safeIndex >= total - 1}
               onClick={() => setIndex((v) => Math.min(total - 1, v + 1))}
             >
               <ChevronRight className="w-4 h-4 text-violet-700" />
@@ -201,39 +270,24 @@ export function ResultData({
         </Accordion>
       )}
 
-      {/* Day 카드 슬라이더 (가로 스크롤바 표시) */}
+      {/* Day 카드 슬라이더 */}
       <motion.div
         initial={{ opacity: 0, y: 4, filter: "blur(3px)" }}
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ duration: 0.35 }}
         className="relative mt-4"
       >
-        {/* 좌/우 페이드 */}
         <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-white to-transparent rounded-l-2xl" />
         <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent rounded-r-2xl" />
-
         <div
           role="region"
           aria-label="여행 일정 슬라이더"
-          className="
-            overflow-x-auto flex gap-4 px-2 pt-2 pb-3 pr-6
-            snap-x snap-mandatory
-            [scrollbar-width:thin] [scrollbar-color:#cfd1dd_transparent]
-          "
+          className="overflow-x-auto flex gap-4 px-2 pt-2 pb-3 pr-6 snap-x snap-mandatory"
           style={{ scrollBehavior: "smooth" }}
         >
-          <style>{`
-            /* WebKit(Chrome/Safari/Edge): 스크롤바 보이도록 + 은은한 스타일 */
-            .snap-x::-webkit-scrollbar { height: 10px; }
-            .snap-x::-webkit-scrollbar-track { background: transparent; }
-            .snap-x::-webkit-scrollbar-thumb { background: #cfd1dd; border-radius: 8px; }
-            .snap-x::-webkit-scrollbar-thumb:hover { background: #babccd; }
-          `}</style>
-
           {dayEntries.map((day, i) => (
             <DayCard key={i} label={`Day ${i + 1}`} items={day.items} />
           ))}
-
           {dayEntries.length === 0 && (
             <Card className="snap-start shrink-0 w-full rounded-2xl bg-white ring-1 ring-zinc-200 shadow-sm p-5">
               <p className="text-zinc-600">일정을 불러올 수 없어요. 추천 이유만 확인할 수 있습니다.</p>
@@ -245,14 +299,71 @@ export function ResultData({
   );
 }
 
-/* ---------- 작은 구성요소들 ---------- */
+/* ===================== Wish Pill ===================== */
+function WishPill({
+                    active,
+                    onToggle,
+                    labelOn = "위시",
+                    labelOff = "위시",
+                  }: {
+  active: boolean;
+  onToggle: () => void;
+  labelOn?: string;
+  labelOff?: string;
+}) {
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(false), 250);
+    return () => clearTimeout(t);
+  }, [flash]);
 
+  const handleClick = () => {
+    onToggle();
+    setFlash(true);
+  };
+
+  return (
+    <motion.button
+      whileTap={{ scale: 0.96 }}
+      animate={flash ? { scale: [1, 1.06, 1] } : {}}
+      transition={{ duration: 0.25 }}
+      onClick={handleClick}
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold select-none",
+        "ring-1 transition-all duration-150",
+        active
+          ? "bg-rose-600 text-white ring-rose-600 shadow-sm"
+          : "bg-white text-rose-600 ring-rose-300 hover:bg-rose-50",
+      ].join(" ")}
+      title={active ? "위시에서 제거" : "위시에 추가"}
+    >
+      {active ? (
+        <>
+          <Heart className="w-4 h-4 fill-white/30" />
+          <span className="hidden sm:inline">{labelOn}</span>
+          <Check className="w-4 h-4 ml-0.5" />
+        </>
+      ) : (
+        <>
+          <Heart className="w-4 h-4 text-rose-600" />
+          <span className="hidden sm:inline">{labelOff}</span>
+        </>
+      )}
+    </motion.button>
+  );
+}
+
+/* ===================== Small Components ===================== */
 function IconGhostButton({
                            children,
                            disabled,
                            onClick,
                            ...rest
-                         }: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+                         }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: React.ReactNode;
+}) {
   return (
     <button
       {...rest}
@@ -298,22 +409,10 @@ function PlanItem({ time, activity }: { time?: string; activity?: string }) {
   );
 }
 
-/* ---------- 유틸 ---------- */
-
-type WishlistItem = {
-  city: string;
-  country: string;
-  reason?: string;
-  addedAt: number;
-};
-
-type BookmarkItem = {
-  surveyId: number | string | null;
-  resultIndex: number;
-  city: string;
-  country: string;
-  addedAt: number;
-};
+/* ===================== Utils ===================== */
+type WishCardItem = { key: string; snapshot: any; addedAt: number };
+type WishlistItem = { city: string; country: string; reason?: string; addedAt: number };
+type BookmarkItem = { surveyId: number | string | null; resultIndex: number; city: string; country: string; addedAt: number };
 
 function readLS<T>(key: string, fallback: T): T {
   try {
@@ -323,46 +422,31 @@ function readLS<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-
 function writeLS<T>(key: string, value: T) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 function eqCityCountry(a: { city?: string; country?: string }, b: any) {
-  return (a.city ?? "").toLowerCase() === (b?.city ?? "").toLowerCase() &&
-    (a.country ?? "").toLowerCase() === (b?.country ?? "").toLowerCase();
-}
-
-function eqBookmark(
-  b: BookmarkItem,
-  surveyId: number | string | null | undefined,
-  resultIndex: number,
-  cur: any
-) {
-  const sidA = b.surveyId ?? null;
-  const sidB = surveyId ?? null;
   return (
-    sidA === sidB &&
-    b.resultIndex === resultIndex &&
-    eqCityCountry(b, cur)
+    (a.city ?? "").toLowerCase() === (b?.city ?? "").toLowerCase() &&
+    (a.country ?? "").toLowerCase() === (b?.country ?? "").toLowerCase()
   );
 }
+function eqBookmark(b: BookmarkItem, surveyId: number | string | null | undefined, resultIndex: number, cur: any) {
+  const sidA = b.surveyId ?? null;
+  const sidB = surveyId ?? null;
+  return sidA === sidB && b.resultIndex === resultIndex && eqCityCountry(b, cur);
+}
 
-/** 서버 schedule 다양한 형태를 관대하게 수용 → [{items:[...]}, ...] */
+/** 다양한 schedule 포맷 허용 → [{items:[...]}, ...] */
 function normalizeSchedule(schedule: any): { items: DayItem[] }[] {
   if (!schedule) return [];
-  // 객체 형태: { day_1: [{time,activity}], day_2: [...] }
   if (typeof schedule === "object" && !Array.isArray(schedule)) {
     const keys = Object.keys(schedule).sort(sortDayKey);
-    return keys.map((k) => ({
-      items: Array.isArray(schedule[k]) ? schedule[k] : [],
-    }));
+    return keys.map((k) => ({ items: Array.isArray(schedule[k]) ? schedule[k] : [] }));
   }
-  // 배열 형태: [{ time, activity, day }, ...] → day 기준 그룹핑
   if (Array.isArray(schedule)) {
     const groups: Record<string, DayItem[]> = {};
     for (const item of schedule) {
@@ -375,14 +459,12 @@ function normalizeSchedule(schedule: any): { items: DayItem[] }[] {
   }
   return [];
 }
-
 function sortDayKey(a: string, b: string) {
   const ai = parseInt(a.replace(/\D/g, "") || "0", 10);
   const bi = parseInt(b.replace(/\D/g, "") || "0", 10);
   return ai - bi;
 }
-
-/** 08:00-09:00 → 08:00–09:00 (en dash), 기타 포맷은 원문 유지 */
+/** 08:00-09:00 → 08:00–09:00 */
 function formatTime(v?: string) {
   if (!v) return "";
   return v.replace(/\s*-\s*/, "–");

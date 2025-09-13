@@ -4,20 +4,22 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/app/hooks/useRequireAuth.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/routes/ProtectedRoute.tsx" afterDir="false" />
+    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)">
+      <change afterPath="$PROJECT_DIR$/app/routes/Wishlist.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/routes/profile.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/App.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/components/HistoryList.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/HistoryList.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/components/HistorySection.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/HistorySection.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/components/ResultData.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/ResultData.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/router.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/router.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/router/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/router/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/routes/ProtectedRoute.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/ProtectedRoute.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/routes/history.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/history.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/mypage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/mypage.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/store/authStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/store/authStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/vite.config.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,7 +51,7 @@
   &quot;isMigrated&quot;: true
 }</component>
   <component name="ProblemsViewState">
-    <option name="selectedTabId" value="ProjectErrors" />
+    <option name="selectedTabId" value="CurrentFile" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 4
@@ -68,7 +70,7 @@
     &quot;git-widget-placeholder&quot;: &quot;FE&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/jaypark/Desktop/FE&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/jaypark/Desktop/pizza&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -137,11 +139,45 @@
       <workItem from="1756386934693" duration="5484000" />
       <workItem from="1756457880135" duration="4042000" />
       <workItem from="1756469431229" duration="1465000" />
+      <workItem from="1756806184887" duration="285000" />
+      <workItem from="1756836868935" duration="17000" />
+      <workItem from="1757300734302" duration="41000" />
+      <workItem from="1757350920086" duration="28000" />
+      <workItem from="1757399772426" duration="1671000" />
+      <workItem from="1757431279069" duration="2957000" />
+      <workItem from="1757519765023" duration="5153000" />
+      <workItem from="1757573319180" duration="10366000" />
+      <workItem from="1757657018945" duration="9586000" />
+      <workItem from="1757745371527" duration="9593000" />
     </task>
+    <task id="LOCAL-00001" summary="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)">
+      <option name="closed" value="true" />
+      <created>1756806235199</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1756806235199</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)" />
+    <option name="LAST_COMMIT_MESSAGE" value="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

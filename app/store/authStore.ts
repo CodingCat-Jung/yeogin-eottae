@@ -5,7 +5,15 @@ import { persist } from "zustand/middleware";
 const API = import.meta.env.VITE_BACKEND_ADDRESS ?? "";
 
 /** 화면에서 쓰는 최소 유저 타입 */
-export type User = { id: number; nickname: string; email?: string } | null;
+export type User =
+  | {
+  id: number;
+  nickname: string;
+  email?: string;
+  /** 백엔드 응답의 profile_image_url / profileImageUrl / avatarUrl 등을 흡수해 저장 */
+  profile_image_url?: string;
+}
+  | null;
 
 type AuthState = {
   token: string | null;
@@ -26,11 +34,23 @@ type AuthState = {
 function normalizeMe(raw: any): User {
   const u = raw?.user ?? raw?.data ?? raw;
   if (!u) return null;
+
   const id = u.id ?? u.userId ?? u.uid;
   const nickname = u.nickname ?? u.name ?? u.username;
   const email = u.email ?? u.mail;
+
+  // 다양한 키 케이스 흡수
+  const profileImageUrl =
+    u.profile_image_url ?? u.profileImageUrl ?? u.avatarUrl ?? u.avatar_url ?? u.photoURL;
+
   if (id == null || !nickname) return null;
-  return { id: Number(id), nickname: String(nickname), email: email ? String(email) : undefined };
+
+  return {
+    id: Number(id),
+    nickname: String(nickname),
+    email: email ? String(email) : undefined,
+    profile_image_url: profileImageUrl ? String(profileImageUrl) : undefined,
+  };
 }
 
 type Stored = Pick<AuthState, "token" | "user" | "isAuthed" | "initialized">;

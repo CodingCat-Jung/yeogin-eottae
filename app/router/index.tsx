@@ -1,9 +1,11 @@
+// app/router/index.tsx
 import { createBrowserRouter } from "react-router-dom";
 import RootLayout from "../layouts/RootLayout";
-import Home from "../routes/index"; // "여긴 어때" 첫 화면
-//import Step1 from "../routes/step1";
+import Home from "../routes/index";
 import Login from "../routes/login";
-// 나중에 step2, step3, result 등도 추가 가능
+
+// ✅ 반드시 히스토리 라우터(Resolver)를 임포트
+import HistoryRoute from "../routes/history";
 
 export const router = createBrowserRouter([
   {
@@ -11,9 +13,11 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       { index: true, element: <Home /> },
-    //q  { path: "step1", element: <Step1 /> },
       { path: "login", element: <Login /> },
-      // 더 추가 예정
+
+      // ✅ 딱 이 한 줄로 /history를 HistoryRoute에 연결
+      { path: "history", element: <HistoryRoute /> },
+
     ],
   },
 ]);

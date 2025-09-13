@@ -1,4 +1,5 @@
 // components/HistorySection.tsx
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -24,11 +25,6 @@ type PrefValue =
   | null
   | undefined;
 
-/** 객체(& 비배열) 형태만 true (참고용) */
-function isIconValueObj(v: PrefValue): v is { icon?: string; value?: string } {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
-
 export type HistorySectionProps = {
   index: number;
   total: number;
@@ -48,9 +44,15 @@ export type HistorySectionProps = {
   } | null;
   onPrev: () => void;
   onNext: () => void;
+
+  /** 추천 본문 슬롯(ResultData 등) */
   RecommendationSlot?: (props: { data: any }) => JSX.Element;
+
   /** 상단에서 이미 제목을 보여줄 때 내부 헤더 숨김 */
   hideInnerHeader?: boolean;
+
+  /** “맞춤 추천 결과”가 열렸을 때 헤더 오른쪽(1/N 왼쪽)에 붙일 pill(위시/보관) */
+  ControlsLeftActions?: () => JSX.Element;
 };
 
 const Fade = ({ children }: { children: React.ReactNode }) => (
@@ -63,7 +65,7 @@ const Fade = ({ children }: { children: React.ReactNode }) => (
   </motion.div>
 );
 
-/** 어떤 값이 와도 안전하게 문자열로 변환 */
+/** 어떤 값이 와도 안전 문자열 */
 function toText(input: any): string {
   try {
     if (input == null) return "-";
@@ -98,7 +100,6 @@ function pickIcon(value: any, fallback?: string) {
     if (first && typeof first === "object" && "icon" in first && (first as any).icon) {
       return (first as any).icon;
     }
-    // 문자열 배열이면 폴백 활용
     if (fallback && String(fallback).trim()) return fallback;
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -109,21 +110,28 @@ function pickIcon(value: any, fallback?: string) {
   return "•";
 }
 
-export default function HistorySection({
-                                         index,
-                                         total,
-                                         loading,
-                                         detail,
-                                         onPrev,
-                                         onNext,
-                                         RecommendationSlot,
-                                         hideInnerHeader = false,
-                                       }: HistorySectionProps) {
+const HistorySection = ({
+                          index,
+                          total,
+                          loading,
+                          detail,
+                          onPrev,
+                          onNext,
+                          RecommendationSlot,
+                          hideInnerHeader = false,
+                          ControlsLeftActions,
+                        }: HistorySectionProps): JSX.Element => {
   const hasList = Number.isFinite(total) && total > 0;
   const clampedIndex = hasList ? Math.min(Math.max(index, 0), total - 1) : 0;
 
-  const disabledPrev = !hasList || clampedIndex <= 0;
-  const disabledNext = !hasList || clampedIndex >= total - 1;
+  // ✅ 어떤 아코디언이 열렸는지 제어 (기본 "reco"로 열림)
+  const [openVal, setOpenVal] = useState<string | undefined>("reco");
+  const isRecoOpen = openVal === "reco";
+
+  // 인덱스/추천 변경 시에도 계속 "reco" 열어두기(원하면 제거해도 됨)
+  useEffect(() => {
+    setOpenVal("reco");
+  }, [index, detail?.recommendation]);
 
   return (
     <div className="rounded-3xl bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_18px_48px_-22px_rgba(101,67,255,0.25)] p-6 sm:p-8">
@@ -144,35 +152,50 @@ export default function HistorySection({
             </div>
           </div>
 
-          {/* 페이지 컨트롤 (Pill) */}
-          <div className="flex items-center rounded-full bg-white/70 ring-1 ring-zinc-200 shadow-sm px-1.5 py-1 gap-1">
-            <Button
-              variant="ghost"
-              onClick={onPrev}
-              disabled={disabledPrev}
-              className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
-              aria-label="이전"
-              title="이전"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="px-2 min-w-[72px] text-center">
-              <span className="text-sm font-semibold text-zinc-800">
-                {hasList ? clampedIndex + 1 : "—"}
-              </span>
-              <span className="mx-1 text-zinc-400">/</span>
-              <span className="text-sm text-zinc-400">{hasList ? total : "—"}</span>
+          {/* 헤더 오른쪽: (좌) 위시/보관 pill(열렸을 때만)  (우) 인덱스+네비(항상) */}
+          <div className="flex items-center gap-2">
+            {isRecoOpen && ControlsLeftActions && (
+              <div
+                className="flex items-center gap-2 shrink-0"
+                // ✅ 아코디언 닫힘 방지: pill 클릭 버블링 차단
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <ControlsLeftActions />
+              </div>
+            )}
+
+            {/* 동그란 하트/북마크 아이콘은 제거됨 */}
+            <div className="flex items-center rounded-full bg-white/70 ring-1 ring-zinc-200 shadow-sm px-1.5 py-1 gap-1">
+              <div className="px-2 min-w-[72px] text-center">
+                <span className="text-sm font-semibold text-zinc-800">
+                  {hasList ? clampedIndex + 1 : "—"}
+                </span>
+                <span className="mx-1 text-zinc-400">/</span>
+                <span className="text-sm text-zinc-400">{hasList ? total : "—"}</span>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={onPrev}
+                disabled={!hasList || clampedIndex <= 0}
+                className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
+                aria-label="이전"
+                title="이전"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={onNext}
+                disabled={!hasList || clampedIndex >= total - 1}
+                className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
+                aria-label="다음"
+                title="다음"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              onClick={onNext}
-              disabled={disabledNext}
-              className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
-              aria-label="다음"
-              title="다음"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       )}
@@ -188,7 +211,13 @@ export default function HistorySection({
       {/* 본문 */}
       {!loading && detail && (
         <Fade>
-          <Accordion type="single" collapsible className="mt-6 space-y-4">
+          <Accordion
+            type="single"
+            collapsible
+            value={openVal}
+            onValueChange={(v) => setOpenVal(v as string | undefined)}
+            className="mt-6 space-y-4"
+          >
             {/* 선호 정보 */}
             <AccordionItem value="prefs" className="border-none">
               <AccordionTrigger className="group rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-zinc-200 hover:bg-violet-50/60 text-[15px] font-semibold text-violet-700 data-[state=open]:shadow-md transition">
@@ -200,7 +229,6 @@ export default function HistorySection({
               <AccordionContent className="pt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {PrefCard("동행 유형", detail.preferences?.comp)}
-                  {/* 스타일은 배열이 올 수 있어 폴백 아이콘 제공 */}
                   {PrefCard("여행 스타일", detail.preferences?.style, "✨")}
                   {PrefCard("여행 기간", detail.preferences?.duration, "⏱")}
                   {PrefCard("예산", detail.preferences?.budget, "💰")}
@@ -237,7 +265,7 @@ export default function HistorySection({
       )}
     </div>
   );
-}
+};
 
 /* ───────────────────── 프리미티브 / UI ───────────────────── */
 
@@ -250,7 +278,7 @@ function Chip({ text }: { text: any }) {
   );
 }
 
-/** 카드형 선호 항목: 아이콘 원형 + 값 강조 + 라벨 보조 */
+/** 카드형 선호 항목 */
 function PrefCard(label: string, value: any, fallbackIcon?: string) {
   const iconRaw = pickIcon(value, fallbackIcon);
 
@@ -258,18 +286,13 @@ function PrefCard(label: string, value: any, fallbackIcon?: string) {
     if (value == null) return <span className="text-zinc-400 text-sm">-</span>;
 
     if (Array.isArray(value)) {
-      // 문자열/객체 배열 → 안전 문자열 리스트
       const items = value
         .map((v: any) => (v && typeof v === "object" && "value" in v ? (v as any).value : v))
         .map(toText)
         .filter(Boolean);
 
       if (!items.length) return <span className="text-zinc-400 text-sm">-</span>;
-
-      // 배열이지만 1개면 칩 대신 텍스트로(일관된 룩)
-      if (items.length === 1) {
-        return <div className="text-zinc-800 font-semibold">{items[0]}</div>;
-      }
+      if (items.length === 1) return <div className="text-zinc-800 font-semibold">{items[0]}</div>;
 
       return (
         <div className="flex flex-wrap gap-1.5">
@@ -319,12 +342,10 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 /* ───── 추천 카드: 다양한 백엔드 스키마를 유연하게 파싱 ───── */
-
 function getTitleFromReco(r: any) {
   if (!r) return "추천 지역";
   if (typeof r === "string") return r;
 
-  // 가장 적합한 제목 후보를 순서대로 선택
   const title =
     (r.city && r.country && `${r.city}, ${r.country}`) ||
     r.city ||
@@ -339,20 +360,16 @@ function getTitleFromReco(r: any) {
 
   return title || "추천 지역";
 }
-
 function getSummaryFromReco(r: any) {
   return r?.summary ?? r?.description ?? r?.reason ?? null;
 }
-
 function getTagsFromReco(r: any): string[] {
   const arr = r?.highlights ?? r?.tags ?? r?.reasons ?? r?.keywords ?? [];
   return Array.isArray(arr) ? arr.filter(Boolean) : [];
 }
-
 function getCreatedAtFromReco(r: any) {
   return r?.createdAt ?? r?.timestamp ?? r?.date ?? null;
 }
-
 function DefaultRecommendation({ data }: { data: any }) {
   const isArr = Array.isArray(data);
   const first = isArr ? data[0] : data;
@@ -390,7 +407,6 @@ function DefaultRecommendation({ data }: { data: any }) {
         </div>
       )}
 
-      {/* 후보가 배열로 오면 2~4번째를 간단 목록으로 보여주기 (선택) */}
       {isArr && data.length > 1 && (
         <div className="mt-4 grid gap-1.5">
           {data.slice(1, 4).map((r: any, i: number) => (
@@ -403,3 +419,6 @@ function DefaultRecommendation({ data }: { data: any }) {
     </div>
   );
 }
+
+export { HistorySection };
+export default HistorySection;

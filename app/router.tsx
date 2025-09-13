@@ -1,10 +1,12 @@
-// app/router.tsx (또는 기존 라우터 설정 파일)
+// app/router.tsx
 import { createBrowserRouter } from "react-router-dom";
 import AppLayout from "./AppLayout";
 import LoginPage from "./routes/login";
 import MyPage from "./routes/mypage";
-import HistoryPage from "./routes/history";           // ← 네가 이미 가진 리스트 페이지
-import HistoryDetailPage from "./routes/HistoryDetail"; // ← 새로 만들 상세 컴포넌트
+import HistoryPage from "./routes/history";
+import HistoryDetailPage from "./routes/HistoryDetail";
+import WishlistPage from "./routes/Wishlist";
+import ProfilePage from "./routes/profile";     // ✅ 프로필 추가
 import ProtectedRoute from "./routes/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -13,16 +15,17 @@ export const router = createBrowserRouter([
     children: [
       { path: "/login", element: <LoginPage /> },
 
-      // 보호 라우트
       {
         element: <ProtectedRoute />,
         children: [
           { path: "/mypage", element: <MyPage /> },
+          { path: "/profile", element: <ProfilePage /> },  // ✅ /profile 경로 추가
+          { path: "/wish", element: <WishlistPage /> },
           {
             path: "/history",
             children: [
-              { index: true, element: <HistoryPage /> },       // /history
-              { path: "detail/:id", element: <HistoryDetailPage /> }, // /history/detail/123
+              { index: true, element: <HistoryPage /> },
+              { path: "detail/:id", element: <HistoryDetailPage /> },
             ],
           },
         ],
