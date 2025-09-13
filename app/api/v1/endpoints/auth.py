@@ -9,13 +9,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, constr, HttpUrl
 
 from app.db.session import get_db
 from app.schemas.user import UserSignup, UserLogin
 from app.crud import user_crud
-from app.models.user import User  # 닉네임 중복 체크용
+from app.models.user import User  # 닉네임/이미지 업데이트용
 
-router = APIRouter()  # ✅ 내부 prefix 사용하지 않음 (main.py에서 /api/auth 붙임)
+router = APIRouter()  # ✅ 내부 prefix 없음 (main.py 에서 /api/auth 붙임)
 
 # ─────────────────────────────────────────────────────────
 # 설정: 세션 만료 (분)
@@ -58,7 +59,7 @@ def signup(user: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # ─────────────────────────────────────────────────────────
-# 로그인: 세션 + CSRF(세션 값 == 헤더) + 쿠키(csrf_token) 발급
+# 로그인
 # ─────────────────────────────────────────────────────────
 @router.post("/login")
 def login(payload: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
@@ -66,31 +67,96 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
     if not db_user:
         raise HTTPException(status_code=400, detail="Invalid nickname or password")
 
-    # 세션에 최소 정보만 저장 (민감정보 X)
-    request.session["user"] = {"id": db_user.id, "nickname": db_user.nickname}
+    # 세션에 최소 정보만 저장
+    request.session["user"] = {
+        "id": db_user.id,
+        "nickname": db_user.nickname,
+        "profile_image_url": getattr(db_user, "profile_image_url", None)
+    }
     request.session["exp"] = int(time.time()) + SESSION_MAX_MIN * 60
 
-    # CSRF 토큰(세션 + 일반 쿠키)
+    # CSRF 토큰
     csrf = secrets.token_urlsafe(32)
     request.session["csrf"] = csrf
     response.set_cookie(
-        key="csrf_token",        # ✅ 프론트와 이름 일치하게 유지
+        key="csrf_token",
         value=csrf,
-        httponly=False,          # 프론트에서 읽어 헤더로 보냄
-        secure=False,            # 배포(HTTPS) 시 True
-        samesite="Lax",          # 크로스 도메인이면 "None" + secure=True
+        httponly=False,
+        secure=False,
+        samesite="None",
         path="/",
         max_age=SESSION_MAX_MIN * 60,
     )
 
-    return {"status": "success", "user_id": db_user.id, "nickname": db_user.nickname}
+    return {
+        "status": "success",
+        "user_id": db_user.id,
+        "nickname": db_user.nickname,
+        "profile_image_url": db_user.profile_image_url,
+    }
 
 # ─────────────────────────────────────────────────────────
-# 내 정보
+# 내 정보 (조회)
 # ─────────────────────────────────────────────────────────
 @router.get("/me")
 def me(user = Depends(require_auth)):
-    return {"id": user["id"], "nickname": user["nickname"]}
+    return {
+        "id": user["id"],
+        "nickname": user["nickname"],
+        "profile_image_url": user.get("profile_image_url")
+    }
+
+# ─────────────────────────────────────────────────────────
+# 내 정보 (수정) — 닉네임 + 프로필 이미지
+# ─────────────────────────────────────────────────────────
+class ProfileUpdate(BaseModel):
+    nickname: Optional[constr(strip_whitespace=True, min_length=2, max_length=20)] = None
+    profile_image_url: Optional[str] = None  # 단순 문자열 URL (검증 원하면 HttpUrl 사용)
+
+@router.patch("/me")
+def update_me(
+    payload: ProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user = Depends(require_auth),
+    x_csrf_token: Optional[str] = Header(default=None, alias="x-csrf-token"),
+):
+    # CSRF 토큰 검사 (선택적)
+    sess_csrf = request.session.get("csrf")
+    if x_csrf_token is not None and sess_csrf and x_csrf_token != sess_csrf:
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+    db_user = db.query(User).filter(User.id == user["id"]).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 닉네임 변경 처리
+    if payload.nickname and payload.nickname != db_user.nickname:
+        exists = db.query(User).filter(User.nickname == payload.nickname).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="nickname already exists")
+        db_user.nickname = payload.nickname
+        request.session["user"]["nickname"] = db_user.nickname
+
+    # 프로필 이미지 변경 처리
+    if payload.profile_image_url is not None:
+        db_user.profile_image_url = payload.profile_image_url
+        request.session["user"]["profile_image_url"] = db_user.profile_image_url
+
+    try:
+        db.commit()
+        db.refresh(db_user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="update failed (integrity error)")
+
+    # 반환
+    return {
+        "id": db_user.id,
+        "nickname": db_user.nickname,
+        "email": getattr(db_user, "email", None),
+        "profile_image_url": db_user.profile_image_url,
+    }
 
 # ─────────────────────────────────────────────────────────
 # 로그아웃
@@ -110,8 +176,7 @@ def check_nickname(nickname: str, db: Session = Depends(get_db)):
     return {"nickname": nickname, "is_available": not bool(exists)}
 
 # ─────────────────────────────────────────────────────────
-# (선택) CSRF만 재발급/보장: 로그인 상태에서 호출
-# 프론트는 필요시 GET /api/auth/csrf → Set-Cookie: csrf_token=...
+# CSRF 재발급
 # ─────────────────────────────────────────────────────────
 @router.get("/csrf")
 def get_csrf(request: Request, response: Response, user=Depends(require_auth)):
@@ -123,7 +188,7 @@ def get_csrf(request: Request, response: Response, user=Depends(require_auth)):
         key="csrf_token",
         value=csrf,
         httponly=False,
-        secure=False,          # HTTPS면 True
+        secure=False,
         samesite="Lax",
         path="/",
         max_age=SESSION_MAX_MIN * 60,
