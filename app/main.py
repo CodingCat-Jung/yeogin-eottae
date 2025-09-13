@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import text
+from fastapi.staticfiles import StaticFiles  # ✅ 추가
 
 # 1) .env
 load_dotenv()
@@ -28,6 +29,7 @@ from app.api.v1.endpoints import auth as auth
 from app.api.v1.endpoints import survey as survey
 from app.api.v1.endpoints import recommendation as recommendation
 from app.api.v1.endpoints import savebox as savebox  # 보관함/위시리스트
+from app.api.v1.endpoints import upload as upload    # ✅ 업로드 라우터 추가
 
 # 4) FastAPI 인스턴스 (변수명: api)
 api = FastAPI(title="Travia API")
@@ -57,6 +59,10 @@ api.add_middleware(
     https_only=HTTPS_ONLY,
     max_age=SESSION_MAX_MIN * 60,
 )
+
+# ✅ 정적 폴더 서빙 (/static/...)
+os.makedirs("static", exist_ok=True)
+api.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 7) startup: 테이블 생성/로그
 @api.on_event("startup")
@@ -96,10 +102,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"message": f"❗ {exc.detail}"})
 
 # 9) 라우터 등록
-api.include_router(auth.router,           prefix="/api/auth",     tags=["auth"])
+api.include_router(auth.router,           prefix="/api/auth",      tags=["auth"])
 api.include_router(survey.router,         prefix="/api/v1/survey", tags=["survey"])
 api.include_router(recommendation.router, prefix="/api",           tags=["recommendation"])
 api.include_router(savebox.router,        prefix="/api",           tags=["savebox"])
+api.include_router(upload.router,         prefix="/api",           tags=["upload"])  # ✅ 업로드 라우터 등록
 
 # 10) 헬스체크
 @api.get("/health")
