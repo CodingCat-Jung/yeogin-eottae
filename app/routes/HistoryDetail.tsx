@@ -7,7 +7,8 @@ import { HistorySection } from "@/components/HistorySection";
 import { ResultData } from "@/components/ResultData";
 import { useAuthStore } from "@/store/authStore";
 
-const API_BASE = import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+const API_BASE = "";
+  //import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
 
 type DetailResp = {
   preferences?: any;

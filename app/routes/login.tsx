@@ -7,8 +7,8 @@ import LogoBlock from "@/components/LogoBlock";
 import { useTravelStore } from "@/store/travelStore";
 import { useAuthStore } from "@/store/authStore";
 
-const API_BASE =
-  import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+const API_BASE ="";
+  //import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
 
 export default function Login() {
   const navigate = useNavigate();

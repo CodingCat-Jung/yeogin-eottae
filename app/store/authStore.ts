@@ -2,8 +2,21 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const API = import.meta.env.VITE_BACKEND_ADDRESS ?? "";
+// ✅ 같은 오리진 우선(상대경로). 필요하면 .env에 절대주소 넣기.
+//const API = (import.meta.env.VITE_BACKEND_ADDRESS ?? "").trim(); // ""면 같은 오리진
+const API = ""; // 프록시 의존
+console.log("[Auth] API base =", API);
 
+async function fetchWithLog(input: RequestInfo, init?: RequestInit) {
+  const url = typeof input === "string" ? input : input.toString();
+  console.log("[Auth] fetch:", url, init);
+  const res = await fetch(url, init);
+  console.log("[Auth] response:", url, res.status, res.headers.get("set-cookie"));
+  return res;
+}
+
+// initialize()에서 테스트로 사용해봐도 됨:
+//let res = await fetchWithLog(`${API}/api/auth/me`, { credentials: "include" });
 /** 화면에서 쓰는 최소 유저 타입 */
 export type User =
   | {
@@ -39,7 +52,6 @@ function normalizeMe(raw: any): User {
   const nickname = u.nickname ?? u.name ?? u.username;
   const email = u.email ?? u.mail;
 
-  // 다양한 키 케이스 흡수
   const profileImageUrl =
     u.profile_image_url ?? u.profileImageUrl ?? u.avatarUrl ?? u.avatar_url ?? u.photoURL;
 
@@ -53,9 +65,22 @@ function normalizeMe(raw: any): User {
   };
 }
 
+// ✅ CSRF 쿠키 읽기 & 보장
+function getCsrfFromCookie(): string | null {
+  const m = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function ensureCsrf(base = API) {
+  if (!getCsrfFromCookie()) {
+    const res = await fetch(`${base}/api/auth/csrf`, { credentials: "include" });
+    if (!res.ok) throw new Error("CSRF 발급 실패");
+  }
+}
+
 type Stored = Pick<AuthState, "token" | "user" | "isAuthed" | "initialized">;
 
-// ✅ create()(...): 이중 괄호 구조를 반드시 유지
+// ✅ create()(...): 이중 괄호 구조 유지
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -73,9 +98,19 @@ export const useAuthStore = create<AuthState>()(
       setUser: (u) => set({ user: u }),
       setAuthed: (v) => set({ isAuthed: v }),
 
-      logout: () => {
-        // 서버 세션 종료(실패 무시)
-        fetch(`${API}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+      logout: async () => {
+        try {
+          // ✅ POST는 CSRF 필요할 수 있으니 먼저 보장
+          await ensureCsrf(API);
+          const csrf = getCsrfFromCookie();
+          await fetch(`${API}/api/auth/logout`, {
+            method: "POST",
+            credentials: "include",
+            headers: csrf ? { "x-csrf-token": csrf } : undefined,
+          });
+        } catch {
+          // 서버 세션 종료 실패는 무시 (클라이언트 상태만 초기화)
+        }
         localStorage.removeItem("token");
         set({ token: null, user: null, isAuthed: false, initialized: true });
       },
@@ -83,7 +118,7 @@ export const useAuthStore = create<AuthState>()(
       /** 앱 시작 시 세션/토큰으로 인증 동기화 */
       initialize: async () => {
         try {
-          // 1) 쿠키 세션
+          // 1) 세션 쿠키 기반
           let res = await fetch(`${API}/api/auth/me`, { credentials: "include" });
           if (res.ok) {
             const me = normalizeMe(await res.json());
@@ -92,10 +127,13 @@ export const useAuthStore = create<AuthState>()(
               return;
             }
           }
-          // 2) 토큰
+          // 2) 토큰 기반 (백엔드가 Bearer 허용하는 경우만)
           const t = get().token ?? localStorage.getItem("token");
           if (t) {
-            res = await fetch(`${API}/api/auth/me`, { headers: { Authorization: `Bearer ${t}` } });
+            res = await fetch(`${API}/api/auth/me`, {
+              headers: { Authorization: `Bearer ${t}` },
+              credentials: "include",
+            });
             if (res.ok) {
               const me = normalizeMe(await res.json());
               if (me) {
@@ -106,7 +144,7 @@ export const useAuthStore = create<AuthState>()(
           }
           set({ user: null, token: null, isAuthed: false, initialized: true });
         } catch {
-          set({ initialized: true }); // 네트워크 장애여도 초기화는 마무리
+          set({ initialized: true }); // 네트워크 장애여도 초기화 플래그는 세움
         }
       },
 
@@ -118,7 +156,6 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "auth-store",
-      // 기본 storage(localStorage) 사용 — 구버전 zustand도 안전
       partialize: (s) => ({
         token: s.token,
         user: s.user,

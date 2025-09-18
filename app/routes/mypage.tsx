@@ -1,3 +1,4 @@
+// app/routes/mypage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
+import { useTravelStore } from "@/store/travelStore"; // ✅ 추가
 
 const API = import.meta.env.VITE_BACKEND_ADDRESS ?? "";
 
@@ -30,10 +32,17 @@ type RecItem = {
 
 export default function MyPage() {
   const navigate = useNavigate();
+
+  // auth
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const nickname = user?.nickname ?? "사용자";
 
+  // ✅ survey 초기화 액션들
+  const resetExceptNickname = useTravelStore((s) => s.resetExceptNickname);
+  const setTravelWith = useTravelStore((s) => s.setTravelWith);
+
+  // 리스트 상태
   const [items, setItems] = useState<RecItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -117,6 +126,33 @@ export default function MyPage() {
 
   const hasItems = useMemo(() => (items?.length ?? 0) > 0, [items]);
 
+  // ✅ 설문 완전 새로 시작
+  function restartSurvey() {
+    // zustand + localStorage 동시 초기화 (닉네임만 유지)
+    resetExceptNickname();
+    setTravelWith(null);
+
+    // 혹시 남아있을 예전 키들도 깔끔하게 제거(안전망)
+    const keysToClear = [
+      "travelWith",
+      "actType",
+      "schedule",
+      "budget",
+      "transport",
+      "continent",
+      "climate",
+      "density",
+      "departSlot",
+      "returnSlot",
+      "departWindow",
+      "returnWindow",
+    ];
+    keysToClear.forEach((k) => localStorage.removeItem(k));
+
+    // 설문 시작 단계로 이동 (프로젝트 흐름에 맞춰 조정)
+    navigate("/step2?fresh=1");
+  }
+
   return (
     <div className="min-h-screen bg-[#fff8f1] flex items-center justify-center px-5 py-10">
       <motion.div
@@ -136,7 +172,6 @@ export default function MyPage() {
                     alt="프로필 이미지"
                     className="h-full w-full object-cover"
                     onError={(e) => {
-                      // 이미지 깨지면 이니셜로 폴백
                       (e.target as HTMLImageElement).style.display = "none";
                       const parent = (e.target as HTMLImageElement).parentElement;
                       if (parent) {
@@ -180,7 +215,7 @@ export default function MyPage() {
           <div className="flex flex-col gap-3">
             <motion.button
               whileTap={{ scale: 0.98 }}
-              onClick={() => navigate("/step3")}
+              onClick={restartSurvey}
               className="group w-full flex items-center gap-3 justify-center rounded-2xl px-5 py-4
                          bg-gradient-to-r from-purple-600 to-fuchsia-500 text-white font-semibold
                          shadow-lg shadow-purple-500/20 hover:shadow-xl transition-all"
@@ -202,7 +237,7 @@ export default function MyPage() {
           </div>
         </div>
 
-        {/* 추가 메뉴: 2칸 그리드 (보관함 제거) */}
+        {/* 추가 메뉴: 2칸 그리드 */}
         <div className="grid grid-cols-2 gap-3 mb-8">
           <SecondaryTile
             icon={<UserRound className="w-5 h-5" />}
@@ -233,7 +268,7 @@ export default function MyPage() {
               아직 받은 추천이 없어요.{" "}
               <button
                 className="underline underline-offset-2 text-purple-600 hover:text-purple-700"
-                onClick={() => navigate("/step3")}
+                onClick={restartSurvey}
               >
                 여행 다시 추천받기
               </button>
@@ -408,8 +443,8 @@ function RecommendationCard({
         )}
       </div>
 
-      {/* 펼침 UI 필요하면 주석 해제 */}
-      {/* {open && moreCount > 0 && (
+      {/* 펼침 UI가 필요하면 주석 해제
+      {open && moreCount > 0 && (
         <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
           {list.slice(1).map((c, i) => (
             <li key={i}>

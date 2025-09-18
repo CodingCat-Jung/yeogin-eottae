@@ -13,7 +13,11 @@ function Bootstrap() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      try { await initialize(); } finally { if (alive) setReady(true); }
+      try {
+        await initialize();     // ✅ initialize는 여기서만
+      } finally {
+        if (alive) setReady(true);
+      }
     })();
     return () => { alive = false; };
   }, [initialize]);
@@ -25,6 +29,7 @@ function Bootstrap() {
       </div>
     );
   }
+
   return (
     <BrowserRouter>
       <App />
@@ -32,10 +37,15 @@ function Bootstrap() {
   );
 }
 
-const rootEl = document.getElementById("root")!;
-const root = ReactDOM.createRoot(rootEl);
-root.render(
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+
+// ✅ 개발(DEV)에서는 StrictMode를 끈다 (effect 2회 실행 방지)
+const AppTree = import.meta.env.PROD ? (
   <React.StrictMode>
     <Bootstrap />
   </React.StrictMode>
+) : (
+  <Bootstrap />
 );
+
+root.render(AppTree);

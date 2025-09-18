@@ -1,15 +1,9 @@
+// app/routes/step4.tsx
 import { useNavigate } from "react-router-dom";
 import { useMemo, useRef, useState } from "react";
-import {
-  Car,
-  TramFront,
-  CircleArrowLeft,
-  CircleArrowRight,
-  Minus,
-  Plus,
-  Wallet,
-} from "lucide-react";
+import { Car, TramFront, CircleArrowLeft, CircleArrowRight, Minus, Plus, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTravelStore } from "@/store/travelStore";
 
 /** ── 유틸 ───────────────────────────────────────── */
 const clampInt = (v: number, min = 1, max = 365) =>
@@ -27,7 +21,7 @@ const parseBudget = (s?: string | null) => {
 };
 const formatKRW = (n: number) => n.toLocaleString("ko-KR");
 
-/** ── 교통수단 카드 컴포넌트 ───────────────────────── */
+/** ── 교통수단 카드 ─────────────────────────────── */
 type TransportOptionCardProps = {
   active: boolean;
   label: string;
@@ -41,7 +35,7 @@ function TransportOptionCard({ active, label, onSelect, Icon }: TransportOptionC
       whileTap={{ scale: 0.97 }}
       className={[
         "flex flex-col items-center justify-center",
-        "w-32 h-36 md:w-36 md:h-40", // ← 박스 크게
+        "w-32 h-36 md:w-36 md:h-40",
         "rounded-2xl border-2 cursor-pointer transition-all duration-300",
         "focus-within:ring-2 focus-within:ring-[#6C3DF4]/50",
         active
@@ -59,7 +53,7 @@ function TransportOptionCard({ active, label, onSelect, Icon }: TransportOptionC
       }}
     >
       <div className="flex flex-col items-center gap-4">
-        <Icon size={28} /> {/* 아이콘은 28px 유지 */}
+        <Icon size={28} />
         <span className="text-lg font-semibold">{label}</span>
       </div>
       <input type="radio" checked={active} onChange={onSelect} className="sr-only" />
@@ -71,18 +65,21 @@ function TransportOptionCard({ active, label, onSelect, Icon }: TransportOptionC
 export default function Step4() {
   const navigate = useNavigate();
 
-  // ✅ 초기 복원
-  const initial = useMemo(() => {
-    const { night, day } = parseSchedule(localStorage.getItem("schedule"));
-    const budget = parseBudget(localStorage.getItem("budget"));
-    const transport = (localStorage.getItem("transport") as "public" | "car") || "public";
-    return { night, day, budget, transport };
-  }, []);
+  // ✅ zustand store (controlled)
+  const transport = useTravelStore((s) => s.transport);                // null | "public" | "car"
+  const setTransport = useTravelStore((s) => s.setTransport);
+  const scheduleStr = useTravelStore((s) => s.schedule);
+  const setSchedule = useTravelStore((s) => s.setSchedule);
+  const budgetStr = useTravelStore((s) => s.budget);
+  const setBudget = useTravelStore((s) => s.setBudget);
 
-  const [transport, setTransport] = useState<"public" | "car">(initial.transport);
-  const [night, setNight] = useState<number>(initial.night);
-  const [day, setDay] = useState<number>(initial.day);
-  const [budgetDisp, setBudgetDisp] = useState<string>(formatKRW(initial.budget));
+  // 파생 상태(일수/예산 입력 UI만 로컬 state로 관리)
+  const { night: initNight, day: initDay } = useMemo(() => parseSchedule(scheduleStr), [scheduleStr]);
+  const initBudget = useMemo(() => parseBudget(budgetStr), [budgetStr]);
+
+  const [night, setNight] = useState<number>(initNight);
+  const [day, setDay] = useState<number>(initDay);
+  const [budgetDisp, setBudgetDisp] = useState<string>(formatKRW(initBudget));
 
   const nightRef = useRef<HTMLInputElement>(null);
   const dayRef = useRef<HTMLInputElement>(null);
@@ -103,9 +100,11 @@ export default function Step4() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    localStorage.setItem("schedule", `${night}night ${day}days`);
-    localStorage.setItem("budget", `${budgetNumber}KRW`);
-    localStorage.setItem("transport", transport);
+
+    // ✅ store setter 사용 (localStorage 직접 접근 금지)
+    setSchedule(`${night}night ${day}days`);
+    setBudget(`${budgetNumber}KRW`);
+
     navigate("/step5");
   };
 
@@ -133,12 +132,8 @@ export default function Step4() {
           <div className="flex flex-wrap gap-6 items-center">
             {/* 박 */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="박 감소"
-                onClick={() => dec(setNight, night)}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition"
-              >
+              <button type="button" aria-label="박 감소" onClick={() => dec(setNight, night)}
+                      className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition">
                 <Minus size={16} />
               </button>
               <input
@@ -151,24 +146,16 @@ export default function Step4() {
                 className="w-24 px-4 py-2 rounded-lg border border-gray-300 text-center focus:outline-none focus:ring-2 focus:ring-[#6C3DF4]/50 focus:border-[#6C3DF4]"
               />
               <span className="text-gray-800 font-medium">박</span>
-              <button
-                type="button"
-                aria-label="박 증가"
-                onClick={() => inc(setNight, night)}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition"
-              >
+              <button type="button" aria-label="박 증가" onClick={() => inc(setNight, night)}
+                      className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition">
                 <Plus size={16} />
               </button>
             </div>
 
             {/* 일 */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="일 감소"
-                onClick={() => dec(setDay, day)}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition"
-              >
+              <button type="button" aria-label="일 감소" onClick={() => dec(setDay, day)}
+                      className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition">
                 <Minus size={16} />
               </button>
               <input
@@ -181,12 +168,8 @@ export default function Step4() {
                 className="w-24 px-4 py-2 rounded-lg border border-gray-300 text-center focus:outline-none focus:ring-2 focus:ring-[#6C3DF4]/50 focus:border-[#6C3DF4]"
               />
               <span className="text-gray-800 font-medium">일</span>
-              <button
-                type="button"
-                aria-label="일 증가"
-                onClick={() => inc(setDay, day)}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition"
-              >
+              <button type="button" aria-label="일 증가" onClick={() => inc(setDay, day)}
+                      className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-95 transition">
                 <Plus size={16} />
               </button>
             </div>
@@ -222,7 +205,7 @@ export default function Step4() {
             className="grid grid-cols-2 gap-4 sm:flex sm:gap-6"
             onKeyDown={(e) => {
               if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-                setTransport((prev) => (prev === "public" ? "car" : "public"));
+                setTransport(transport === "public" ? "car" : "public");
               }
             }}
           >

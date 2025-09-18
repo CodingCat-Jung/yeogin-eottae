@@ -1,5 +1,5 @@
 // app/routes/result.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -17,81 +17,21 @@ import {
   PlaneTakeoff,
 } from "lucide-react";
 
-/* ---------- Types ---------- */
+/* =========================
+ * Types
+ * ========================= */
 type Activity = { time: string; activity: string };
 type CitySchedule = Record<string, Activity[]>;
 type Recommendation = {
   city: string;
   country: string;
   reason: string;
-  schedule: CitySchedule; // 백엔드에서 배열→맵 변환 완료 전제
+  schedule: CitySchedule;
 };
 
-/* ---------- 세련된 히어로 ---------- */
-function ResultHero({
-                      duration,
-                      budget,
-                      transport,
-                    }: {
-  duration: string;
-  budget: string;
-  transport: string;
-}) {
-  const TransportText = transport === "public" ? "대중교통" : "자가용";
-
-  const Chip = ({ children }: { children: React.ReactNode }) => (
-    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
-      {children}
-    </span>
-  );
-
-  return (
-    <motion.header
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="relative isolate overflow-hidden text-center pt-6 pb-8"
-    >
-      {/* 부드러운 글로우 */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-20 flex justify-center"
-      >
-        <div className="h-44 w-44 rounded-full bg-gradient-to-br from-violet-300/30 to-fuchsia-200/25 blur-3xl" />
-      </div>
-
-      {/* 프리헤더 배지 */}
-      <div className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-3 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
-        ✨ 여행 취향 기반 추천
-      </div>
-
-      {/* 타이틀 */}
-      <h1 className="mt-3 text-3xl md:text-4xl font-extrabold leading-tight tracking-tight text-slate-900">
-        당신만을 위한{" "}
-        <span className="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
-          여행지
-        </span>
-        를 추천해요
-      </h1>
-
-      {/* 서브 카피 */}
-      <p className="mx-auto mt-2 max-w-xl text-sm md:text-base text-gray-600">
-        선택하신 정보를 바탕으로 어울리는 여행지를 골라봤어요
-      </p>
-
-      {/* 요약 칩 */}
-      <div className="mt-4 flex items-center justify-center gap-2">
-        <Chip>{duration}</Chip>
-        <Chip>{toKRWString(budget)}</Chip>
-        <Chip>{TransportText} 기준</Chip>
-      </div>
-
-      {/* 얇은 디바이더 */}
-      <div className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-violet-400/50 via-fuchsia-400/50 to-violet-400/50" />
-    </motion.header>
-  );
-}
-
-/* ---------- Small utils ---------- */
+/* =========================
+ * Small utils
+ * ========================= */
 const getCookie = (name: string) => {
   const v = document.cookie
     .split("; ")
@@ -153,8 +93,6 @@ function openFlights(dstCity: string, dstIataHint?: string) {
   const origin = (localStorage.getItem("originAirport") || "ICN").toUpperCase();
   const dep = localStorage.getItem("departDate") || "";
   const ret = localStorage.getItem("returnDate") || "";
-
-  // IATA 코드 힌트가 있으면 사용, 없으면 도시명으로 검색
   const dst = (dstIataHint || dstCity).toUpperCase();
 
   const url =
@@ -167,7 +105,63 @@ function openFlights(dstCity: string, dstIataHint?: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-/* ---------- UI pieces ---------- */
+/* =========================
+ * Pretty UI bits
+ * ========================= */
+function ResultHero({
+                      duration,
+                      budget,
+                      transport,
+                    }: {
+  duration: string;
+  budget: string;
+  transport: string;
+}) {
+  const TransportText = transport === "public" ? "대중교통" : "자가용";
+
+  const Chip = ({ children }: { children: React.ReactNode }) => (
+    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
+      {children}
+    </span>
+  );
+
+  return (
+    <motion.header
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative isolate overflow-hidden text-center pt-6 pb-8"
+    >
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-20 flex justify-center">
+        <div className="h-44 w-44 rounded-full bg-gradient-to-br from-violet-300/30 to-fuchsia-200/25 blur-3xl" />
+      </div>
+
+      <div className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-3 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
+        ✨ 여행 취향 기반 추천
+      </div>
+
+      <h1 className="mt-3 text-3xl md:text-4xl font-extrabold leading-tight tracking-tight text-slate-900">
+        당신만을 위한{" "}
+        <span className="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+          여행지
+        </span>
+        를 추천해요
+      </h1>
+
+      <p className="mx-auto mt-2 max-w-xl text-sm md:text-base text-gray-600">
+        선택하신 정보를 바탕으로 어울리는 여행지를 골라봤어요
+      </p>
+
+      <div className="mt-4 flex items-center justify-center gap-2">
+        <Chip>{duration}</Chip>
+        <Chip>{toKRWString(budget)}</Chip>
+        <Chip>{TransportText} 기준</Chip>
+      </div>
+
+      <div className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-violet-400/50 via-fuchsia-400/50 to-violet-400/50" />
+    </motion.header>
+  );
+}
+
 function MetaChips({
                      duration,
                      budget,
@@ -236,7 +230,9 @@ function DaySection({
   );
 }
 
-/* ---------- Page ---------- */
+/* =========================
+ * Page
+ * ========================= */
 export default function Result() {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -250,8 +246,22 @@ export default function Result() {
   const [resultData, setResultData] = useState<Recommendation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 중복 호출 방지 + 취소
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const durationKR = useMemo(() => {
+    const s = (localStorage.getItem("schedule") || "").toLowerCase();
+    const m = s.match(/(\d+)\s*night.*?(\d+)\s*days/);
+    if (m) return `${m[1]}박 ${m[2]}일`;
+    return s || "여행 기간";
+  }, []);
+
+  const budgetKR = localStorage.getItem("budget") || "";
+  const transport = localStorage.getItem("transport") || "public";
+
   useEffect(() => {
-    let aborted = false;
+    let unmounted = false;
 
     async function ensureCsrf(API: string) {
       let token = CSRF_COOKIE_CANDIDATES.map(getCookie).find(Boolean) ?? null;
@@ -270,43 +280,99 @@ export default function Result() {
       return token;
     }
 
-    async function fetchResult() {
-      const nickname = localStorage.getItem("nickname");
-      const travelWith = localStorage.getItem("travelWith");
-      const actType = localStorage.getItem("actType");
-      const schedule = localStorage.getItem("schedule");
-      const budget = localStorage.getItem("budget");
-      const transport = localStorage.getItem("transport");
-
-      // ✅ step-time에서 저장한 값도 읽어온다
-      const departWindow = localStorage.getItem("departWindow") || ""; // 'dawn'|'morning'|'afternoon'|'evening'
-      const returnWindow = localStorage.getItem("returnWindow") || "";
-
-      if (
-        !nickname ||
-        !travelWith ||
-        !actType ||
-        !schedule ||
-        !budget ||
-        !transport ||
-        !cont ||
-        !env ||
-        !pace
-      ) {
-        setError(
-          "입력 정보가 누락되어 추천을 불러올 수 없습니다. 처음부터 다시 시도해주세요."
-        );
-        setLoading(false);
-        return;
+    function parseActTypeSafe(raw: string | null): string[] {
+      if (!raw) return [];
+      const trimmed = raw.trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const arr = JSON.parse(trimmed);
+          return Array.isArray(arr)
+            ? arr.map((s: any) => String(s).trim()).filter(Boolean)
+            : [];
+        } catch {
+          /* fallthrough */
+        }
       }
+      return trimmed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function normalizeCompanion(raw: string | null): string | null {
+      const allow = new Set(["혼자", "친구", "연인", "가족"]);
+      if (!raw) return null;
+      if (allow.has(raw)) return raw;
+      const map: Record<string, string> = {
+        solo: "혼자",
+        friend: "친구",
+        friends: "친구",
+        couple: "연인",
+        family: "가족",
+      };
+      return map[raw.toLowerCase()] ?? null;
+    }
+
+    function dedupeRecs(list: Recommendation[]): Recommendation[] {
+      const seen = new Set<string>();
+      const out: Recommendation[] = [];
+      for (const r of list) {
+        const firstDayKey =
+          Object.keys(r.schedule).sort((a, b) => a.localeCompare(b))[0] || "";
+        const firstLen = firstDayKey ? r.schedule[firstDayKey]?.length || 0 : 0;
+        const key = `${r.city}|${r.country}|${firstLen}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push(r);
+        }
+      }
+      return out;
+    }
+
+    async function fetchResultOnce() {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
 
       try {
         setLoading(true);
         setError(null);
 
-        const API =
-          import.meta.env.VITE_BACKEND_ADDRESS ?? "http://localhost:8000";
+        const nickname = localStorage.getItem("nickname") || "";
+        const travelWith = normalizeCompanion(localStorage.getItem("travelWith"));
+        const actType = parseActTypeSafe(localStorage.getItem("actType"));
+        const schedule = localStorage.getItem("schedule") || "";
+        const budget = localStorage.getItem("budget") || "";
+        const driving = localStorage.getItem("transport") || "";
 
+        // step-time 호환 키
+        const departWindow =
+          localStorage.getItem("departWindow") ||
+          localStorage.getItem("departSlot") ||
+          "";
+        const returnWindow =
+          localStorage.getItem("returnWindow") ||
+          localStorage.getItem("returnSlot") ||
+          "";
+
+        if (
+          !nickname ||
+          !travelWith ||
+          actType.length === 0 ||
+          !schedule ||
+          !budget ||
+          !driving ||
+          !cont ||
+          !env ||
+          !pace
+        ) {
+          setError(
+            "입력 정보가 누락되어 추천을 불러올 수 없습니다. 처음부터 다시 시도해주세요."
+          );
+          setLoading(false);
+          return;
+        }
+
+        const API = ""; // 동일 오리진(리버스 프록시). 필요시 VITE_BACKEND_ADDRESS 사용
         const token =
           localStorage.getItem("access_token") ||
           localStorage.getItem("token") ||
@@ -322,14 +388,13 @@ export default function Result() {
           nickname,
           preferences: {
             companion: travelWith,
-            style: actType.split(",").map((s) => s.trim()).filter(Boolean),
+            style: actType,
             duration: schedule,
             budget,
             climate: env,
             continent: cont,
             density: pace,
-            driving: transport,
-            // ✅ 새로 추가: 출/귀국 시간대 힌트
+            driving,
             depart_window: departWindow || null,
             return_window: returnWindow || null,
           },
@@ -348,12 +413,24 @@ export default function Result() {
           headers["X-XSRF-TOKEN"] = csrfToken;
         }
 
+        // 중복 호출 취소
+        abortRef.current?.abort();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+
+        // ---- 디버그 로깅 ----
+        console.time("recommend");
+        console.log("[REQ] /api/v1/survey/recommend payload =", payload);
+
         const res = await fetch(`${API}/api/v1/survey/recommend`, {
           method: "POST",
           headers,
           credentials: useCookieAuth ? "include" : "same-origin",
           body: JSON.stringify(payload),
+          signal: ctrl.signal,
         });
+
+        console.log("[RES] status =", res.status, res.statusText);
 
         if (res.status === 403) {
           const msg = (await res.text().catch(() => "")) || "Forbidden";
@@ -365,43 +442,71 @@ export default function Result() {
           const msg = (await res.text().catch(() => "")) || "Unauthorized";
           throw new Error(`세션이 만료되었거나 로그인 정보가 없습니다. (${msg})`);
         }
+        const raw = await res.text();
+        console.log("[RES] raw length =", raw.length);
+        console.log("[RES] raw head =", raw.slice(0, 300));
+
         if (!res.ok) {
-          const msg = await res.text().catch(() => "");
           throw new Error(
             `서버 응답 오류: ${res.status} ${res.statusText}${
-              msg ? `\n${msg}` : ""
+              raw ? `\n${raw}` : ""
             }`
           );
         }
 
-        const data = (await res.json()) as { data: Recommendation[] };
-        if (!aborted) setResultData(data?.data ?? []);
+        let parsed: any = null;
+        try {
+          parsed = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          console.error("❌ JSON 파싱 실패:", e);
+          throw new Error("응답을 JSON으로 파싱하지 못했습니다.");
+        }
+
+        let list: any[] = [];
+        if (Array.isArray(parsed)) list = parsed;
+        else if (parsed?.data && Array.isArray(parsed.data)) list = parsed.data;
+        else if (parsed?.results && Array.isArray(parsed.results))
+          list = parsed.results;
+        else {
+          const firstArrayKey = Object.keys(parsed || {}).find((k) =>
+            Array.isArray((parsed as any)[k])
+          );
+          if (firstArrayKey) list = (parsed as any)[firstArrayKey];
+        }
+
+        // 타입 최소 보정
+        list = (list || []).map((it) => ({
+          city: it.city ?? it.destination ?? "",
+          country: it.country ?? it.nation ?? "",
+          reason: it.reason ?? it.explain ?? "",
+          schedule: it.schedule ?? it.plan ?? {},
+        }));
+
+        // 중복 제거(같은 도시/국가/첫째날 길이 동일 시 중복으로 판단)
+        list = dedupeRecs(list);
+
+        console.timeEnd("recommend");
+        console.log("[PARSED] items =", list.length);
+
+        if (!unmounted) setResultData(list);
       } catch (e: any) {
-        if (!aborted)
+        if (!unmounted)
           setError(
             e?.message || "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
           );
         console.error("❌ 추천 조회 실패:", e);
       } finally {
-        if (!aborted) setLoading(false);
+        if (!unmounted) setLoading(false);
+        inFlightRef.current = false;
       }
     }
 
-    fetchResult();
+    fetchResultOnce();
     return () => {
-      aborted = true;
+      unmounted = true;
+      abortRef.current?.abort();
     };
   }, [cont, env, pace]);
-
-  const durationKR = useMemo(() => {
-    const s = (localStorage.getItem("schedule") || "").toLowerCase();
-    const m = s.match(/(\d+)\s*night.*?(\d+)\s*days/);
-    if (m) return `${m[1]}박 ${m[2]}일`;
-    return s || "여행 기간";
-  }, []);
-
-  const budgetKR = localStorage.getItem("budget") || "";
-  const transport = localStorage.getItem("transport") || "public";
 
   const copyItinerary = async (rec: Recommendation) => {
     try {
@@ -482,7 +587,7 @@ export default function Result() {
                   <div className="shrink-0 flex flex-col gap-2">
                     <button
                       type="button"
-                      onClick={() => openFlights(rec.city /*, 'IATA_HINT' */)}
+                      onClick={() => openFlights(rec.city)}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border text-sm text-violet-700 border-violet-200 hover:bg-violet-50"
                       title="항공권 검색"
                     >

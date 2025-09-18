@@ -1,7 +1,6 @@
 // app/routes/step-time.tsx
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
 import { Sunrise, Sun, Sunset, Moon, ArrowLeft, ArrowRight } from "lucide-react";
 
 const SLOT = [
@@ -19,12 +18,40 @@ export default function StepTime() {
   const env = params.get("env");
   const pace = params.get("pace");
 
-  const [depart, setDepart] = useState(localStorage.getItem("departSlot") || "");
-  const [ret, setRet] = useState(localStorage.getItem("returnSlot") || "");
+  // ✅ 두 종류 키(departSlot/returnSlot, departWindow/returnWindow) 중 있는 값으로 초기화
+  const [depart, setDepart] = useState<string>(
+    localStorage.getItem("departSlot") ||
+    localStorage.getItem("departWindow") ||
+    ""
+  );
+  const [ret, setRet] = useState<string>(
+    localStorage.getItem("returnSlot") ||
+    localStorage.getItem("returnWindow") ||
+    ""
+  );
+
+  // 선택이 바뀔 때마다 로컬스토리지 동기화 (양쪽 키를 모두 관리)
+  useEffect(() => {
+    if (depart) {
+      localStorage.setItem("departSlot", depart);
+      localStorage.setItem("departWindow", depart);
+    }
+  }, [depart]);
+
+  useEffect(() => {
+    if (ret) {
+      localStorage.setItem("returnSlot", ret);
+      localStorage.setItem("returnWindow", ret);
+    }
+  }, [ret]);
 
   const goNext = () => {
+    // 한번 더 저장(안전망)
     localStorage.setItem("departSlot", depart);
     localStorage.setItem("returnSlot", ret);
+    localStorage.setItem("departWindow", depart);
+    localStorage.setItem("returnWindow", ret);
+
     nav(`/result?cont=${cont}&env=${env}&pace=${pace}`);
   };
 
@@ -43,12 +70,14 @@ export default function StepTime() {
         <section>
           <p className="text-lg font-semibold mb-3 text-[#3F30C4]">출국 시간대</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {SLOT.map(s => (
+            {SLOT.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setDepart(s.id)}
                 className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${
-                  depart === s.id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 hover:border-violet-300"
+                  depart === s.id
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
+                    : "border-gray-200 hover:border-violet-300"
                 }`}
               >
                 {s.icon}
@@ -61,12 +90,14 @@ export default function StepTime() {
         <section>
           <p className="text-lg font-semibold mb-3 text-[#3F30C4]">귀국 시간대</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {SLOT.map(s => (
+            {SLOT.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setRet(s.id)}
                 className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${
-                  ret === s.id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 hover:border-violet-300"
+                  ret === s.id
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
+                    : "border-gray-200 hover:border-violet-300"
                 }`}
               >
                 {s.icon}
@@ -84,7 +115,9 @@ export default function StepTime() {
             onClick={goNext}
             disabled={!depart || !ret}
             className={`flex items-center gap-2 px-5 py-2 rounded-full text-white transition ${
-              !depart || !ret ? "bg-gray-300 cursor-not-allowed" : "bg-gradient-to-r from-purple-500 to-indigo-500 hover:opacity-90"
+              !depart || !ret
+                ? "bg-gray-300 cursor-not-allowed"
+                : "bg-gradient-to-r from-purple-500 to-indigo-500 hover:opacity-90"
             }`}
           >
             추천 받기 <ArrowRight size={16} />

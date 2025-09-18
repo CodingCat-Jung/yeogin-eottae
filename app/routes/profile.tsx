@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 
 import { useAuthStore } from "@/store/authStore";
 
-const API_BASE = import.meta.env.VITE_BACKEND_ADDRESS || "http://localhost:8000";
+const API_BASE = "";//import.meta.env.VITE_BACKEND_ADDRESS || "http://localhost:8000";
 
 export default function ProfilePage() {
   const navigate = useNavigate();

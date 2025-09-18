@@ -1,14 +1,13 @@
+// app/components/NavBar.tsx
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTravelStore } from "@/store/travelStore";
 import { useAuthStore } from "@/store/authStore";
 
-const API_BASE =
-  import.meta.env.VITE_BACKEND_ADDRESS ?? "http://127.0.0.1:8000";
+const API_BASE = "";
+// import.meta.env.VITE_BACKEND_ADDRESS ?? "http://127.0.0.1:8000";
 
-/** 본문 가림 방지용: 레이아웃에서 <NavSpacer/> 한 줄 추가하면 끝 */
 export function NavSpacer() {
-  // 전역 CSS 변수 적용 (html { scroll-padding-top: var(--nav-h); } 같이 쓰면 앵커도 안전)
   useEffect(() => {
     const el = document.getElementById("site-nav");
     const setVar = () => {
@@ -32,8 +31,10 @@ export default function NavBar() {
   const navigate = useNavigate();
   const navRef = useRef<HTMLElement>(null);
 
-  // 설문 스토어 (필요 시 reset에서만 사용)
+  // 설문 스토어
   const resetSurvey = useTravelStore((s) => s.reset);
+  const resetExceptNickname = useTravelStore((s) => s.resetExceptNickname);
+  const setTravelWith = useTravelStore((s) => s.setTravelWith);
 
   // 인증 스토어
   const {
@@ -42,11 +43,10 @@ export default function NavBar() {
     user,
     setUser,
     hydrateFromStorage,
-    logout,     // 내부적으로 user/token/isAuthed 초기화
-    setAuthed,  // (선택) 명시적 로그인 상태 토글
+    logout,
+    setAuthed,
   } = useAuthStore();
 
-  /** 네비 높이를 CSS 변수로 반영 → 본문 가림 방지 */
   useEffect(() => {
     const el = navRef.current;
     const setVar = () => {
@@ -63,36 +63,29 @@ export default function NavBar() {
     };
   }, []);
 
-  /** 앱 시작 시 localStorage → store 동기화 */
   useEffect(() => {
     hydrateFromStorage();
   }, [hydrateFromStorage]);
 
-  /** /auth/me 조회 (토큰/쿠키 모드 자동) */
   useEffect(() => {
     let aborted = false;
     const fetchMe = async () => {
       try {
         const headers: Record<string, string> = {};
-        const opts: RequestInit = {
-          method: "GET",
-          headers,
-        };
+        const opts: RequestInit = { method: "GET", headers };
 
         if (token) {
           headers.Authorization = `Bearer ${token}`;
-          opts.credentials = "include"; // 백이 토큰+세션 병행해도 안전
+          opts.credentials = "include";
         } else {
-          opts.credentials = "include"; // 세션/쿠키 모드
+          opts.credentials = "include";
         }
 
         const res = await fetch(`${API_BASE}/api/auth/me`, opts);
         if (!res.ok) {
-          // 비로그인/만료 상태 → 프론트 상태 정리
           logout();
           return;
         }
-
         const data = await res.json();
         if (aborted) return;
 
@@ -103,7 +96,7 @@ export default function NavBar() {
         });
         setAuthed?.(true);
       } catch {
-        // 네트워크 오류는 초기 렌더 방해하지 않도록 무시
+        // ignore
       }
     };
     fetchMe();
@@ -121,15 +114,15 @@ export default function NavBar() {
         headers.Authorization = `Bearer ${token}`;
         (opts as any).headers = headers;
       }
-      (opts as any).credentials = "include"; // 쿠키 모드도 함께 처리
+      (opts as any).credentials = "include";
       await fetch(`${API_BASE}/api/auth/logout`, opts);
     } catch {
-      // 서버 통신 실패해도 프론트 상태는 정리
+      // noop
     } finally {
       resetSurvey();
       logout();
 
-      // persist/로컬 키들 정리 (프로젝트에서 사용하는 키 전부 추가)
+      // ✅ 설문 관련 키들까지 확실히 삭제
       const keysToClear = [
         "user",
         "nickname",
@@ -141,6 +134,12 @@ export default function NavBar() {
         "continent",
         "climate",
         "density",
+        // ⏰ step-time 관련 (옛 키 포함)
+        "departSlot",
+        "returnSlot",
+        "departWindow",
+        "returnWindow",
+        // auth
         "access_token",
         "token",
       ];
@@ -153,7 +152,7 @@ export default function NavBar() {
     }
   }, [token, resetSurvey, logout, navigate]);
 
-  /** 활성 링크 스타일 (하위 경로 포함) */
+  /** 활성 링크 스타일 */
   const isActive = useCallback(
     (path: string) =>
       location.pathname === path ||
@@ -169,7 +168,7 @@ export default function NavBar() {
     [isActive]
   );
 
-  /** 로그인 가드: user 기준이 안전 */
+  /** 로그인 가드 */
   const guardNav = useCallback(
     (path: string) => {
       if (!user) navigate(`/login?re_uri=${encodeURIComponent(path)}`);
@@ -178,7 +177,35 @@ export default function NavBar() {
     [user, navigate]
   );
 
-  /** 인사말: user 기준으로만 표시(로컬 캐시 잔상 방지) */
+  /** 설문 새 시작 (닉네임만 유지) */
+  const goSurveyFresh = useCallback(() => {
+    if (!user) {
+      navigate(`/login?re_uri=${encodeURIComponent("/step2")}`);
+      return;
+    }
+    // ✅ store 초기화
+    resetExceptNickname();
+    setTravelWith(null);
+
+    // ✅ 혹시 남아 있는 이전 키들을 즉시 제거(안전망)
+    [
+      "travelWith",
+      "actType",
+      "schedule",
+      "budget",
+      "transport",
+      "continent",
+      "climate",
+      "density",
+      "departSlot",
+      "returnSlot",
+      "departWindow",
+      "returnWindow",
+    ].forEach((k) => localStorage.removeItem(k));
+
+    navigate("/step2");
+  }, [user, navigate, resetExceptNickname, setTravelWith]);
+
   const greetName = useMemo(
     () => (isAuthed && user?.nickname ? user.nickname : "여행자"),
     [isAuthed, user?.nickname]
@@ -193,7 +220,6 @@ export default function NavBar() {
       aria-label="Global"
     >
       <div className="flex items-center justify-between">
-        {/* 로고 / 타이틀 */}
         <Link
           to="/"
           className="text-2xl font-extrabold text-purple-600 tracking-tight"
@@ -201,51 +227,45 @@ export default function NavBar() {
           여긴어때
         </Link>
 
-        {/* 메뉴 */}
         <div className="flex items-center gap-6 text-sm">
-          <button
-            onClick={() => guardNav("/step2?fresh=1")}
-            className={linkStyle("/step2")}
-          >
+          <button onClick={goSurveyFresh} className={linkStyle("/step2")}>
             설문
-
-        </button>
-        <button
-          onClick={() => guardNav("/mypage")}
-          className={linkStyle("/mypage")}
-        >
-          마이페이지
-        </button>
-        <button
-          onClick={() => guardNav("/history")}
-          className={linkStyle("/history")}
-        >
-          기록
-        </button>
-
-        {!isAuthed ? (
-          <Link
-            to="/login"
-            className="text-purple-600 font-semibold hover:underline"
+          </button>
+          <button
+            onClick={() => guardNav("/mypage")}
+            className={linkStyle("/mypage")}
           >
-            로그인
-          </Link>
-        ) : (
-          <>
+            마이페이지
+          </button>
+          <button
+            onClick={() => guardNav("/history")}
+            className={linkStyle("/history")}
+          >
+            기록
+          </button>
+
+          {!isAuthed ? (
+            <Link
+              to="/login"
+              className="text-purple-600 font-semibold hover:underline"
+            >
+              로그인
+            </Link>
+          ) : (
+            <>
               <span className="text-gray-600">
                 반가워요, <strong>{greetName}</strong>님
               </span>
-            <button
-              onClick={handleLogout}
-              className="text-red-500 hover:underline transition text-sm"
-            >
-              로그아웃
-            </button>
-          </>
-        )}
+              <button
+                onClick={handleLogout}
+                className="text-red-500 hover:underline transition text-sm"
+              >
+                로그아웃
+              </button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
-</nav>
-)
-  ;
+    </nav>
+  );
 }

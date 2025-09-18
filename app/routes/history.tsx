@@ -6,7 +6,8 @@ import HistoryList from "@/components/HistoryList";
 import { useAuthStore } from "@/store/authStore";
 import { useTravelStore } from "@/store/travelStore";
 
-const API_BASE = import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+const API_BASE = "";
+  //import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
 
 function buildHeaders(token?: string) {
   const h: Record<string, string> = { Accept: "application/json" };

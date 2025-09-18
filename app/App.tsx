@@ -1,6 +1,5 @@
 // app/App.tsx
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect } from "react";
 import AppLayout from "./AppLayout";
 
 import Home from "./routes/index";
@@ -16,14 +15,23 @@ import History from "./routes/history";
 import Mypage from "./routes/mypage";
 import HistoryDetail from "./routes/HistoryDetail";
 import Wishlist from "./routes/Wishlist";
-import Profile from "./routes/profile";           // ✅ 프로필 페이지 추가
+import Profile from "./routes/profile";
 import { useAuthStore } from "@/store/authStore";
 
-/** 보호 라우트: 'token' 또는 'isAuthed' 만으로 통과 (user까지 기다리지 않음) */
+/** 보호 라우트 */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { token, isAuthed, initialized } = useAuthStore();
   const loc = useLocation();
-  if (!initialized) return null;
+
+  if (!initialized) {
+    // ✅ 초기화 중 로딩 화면
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#fff8f1]">
+        <div className="h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
   const authed = !!token || isAuthed;
   if (!authed) {
     return (
@@ -45,11 +53,6 @@ function LoginGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const initialize = useAuthStore((s) => s.initialize);
-  useEffect(() => {
-    initialize();
-  }, [initialize]);
-
   return (
     <Routes>
       <Route element={<AppLayout />}>
@@ -62,7 +65,11 @@ export default function App() {
         <Route path="/step4" element={<Step4 />} />
         <Route path="/step5" element={<Step5 />} />
         <Route path="/step-time" element={<StepTime />} />
-        <Route path="/result" element={<Result />} /> {/* 필요시 RequireAuth로 감싸기 */}
+        <Route path="/result" element={<Result />} />
+        {/*
+          🔐 만약 추천 결과도 로그인 사용자에게만 보이게 하려면 위 한 줄을 아래처럼 교체:
+          <Route path="/result" element={<RequireAuth><Result /></RequireAuth>} />
+        */}
 
         {/* 보호 라우트 */}
         <Route
@@ -97,8 +104,6 @@ export default function App() {
             </RequireAuth>
           }
         />
-
-        {/* ✅ 프로필 수정 라우트 */}
         <Route
           path="/profile"
           element={
