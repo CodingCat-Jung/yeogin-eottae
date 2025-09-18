@@ -92,7 +92,7 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
         "status": "success",
         "user_id": db_user.id,
         "nickname": db_user.nickname,
-        "profile_image_url": db_user.profile_image_url,
+        "profile_image_url": getattr(db_user, "profile_image_url", None),
     }
 
 # ─────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ def update_me(
         "id": db_user.id,
         "nickname": db_user.nickname,
         "email": getattr(db_user, "email", None),
-        "profile_image_url": db_user.profile_image_url,
+        "profile_image_url": getattr(db_user, "profile_image_url", None), 
     }
 
 # ─────────────────────────────────────────────────────────

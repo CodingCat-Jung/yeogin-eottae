@@ -160,7 +160,7 @@ def save_to_db(data: Dict[str, Any]):
         db.close()
 
 if __name__ == "__main__":
-    NUM_TO_GENERATE = 5
+    NUM_TO_GENERATE = 1000
     
     print("합성 데이터 생성을 시작합니다...")
     

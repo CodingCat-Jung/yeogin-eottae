@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, SmallInteger, ForeignKey, JSON, TIMESTAMP, func
+from sqlalchemy import Column, Integer, SmallInteger, ForeignKey, JSON, TIMESTAMP, String, func
 from app.db.base_class import Base
 # recommendation.py
 survey_id = Column(Integer, ForeignKey("surveys.id"), index=True, nullable=False)
@@ -13,3 +13,4 @@ class Recommendation(Base):
 
     # ✅ 새로 추가
     rating = Column(SmallInteger, nullable=True)   # 1~5 점수
+    vector_id = Column(String(255), unique=True, nullable=True)
