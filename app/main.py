@@ -35,7 +35,7 @@ from app.api.v1.endpoints import upload as upload    # ✅ 업로드 라우터 �
 api = FastAPI(title="Travia API")
 
 # 5) CORS
-front_origins_env = os.getenv("FRONT_ORIGINS", "http://localhost:5173")
+front_origins_env = os.getenv("FRONT_ORIGINS", "http://34.47.89.151,http://localhost:5173")
 allow_origins = [o.strip() for o in front_origins_env.split(",") if o.strip()]
 api.add_middleware(
     CORSMiddleware,

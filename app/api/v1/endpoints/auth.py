@@ -71,7 +71,6 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
     request.session["user"] = {
         "id": db_user.id,
         "nickname": db_user.nickname,
-        "profile_image_url": getattr(db_user, "profile_image_url", None)
     }
     request.session["exp"] = int(time.time()) + SESSION_MAX_MIN * 60
 
@@ -81,7 +80,7 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
     response.set_cookie(
         key="csrf_token",
         value=csrf,
-        httponly=False,
+        httponly=True,
         secure=False,
         samesite="None",
         path="/",
@@ -92,7 +91,6 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
         "status": "success",
         "user_id": db_user.id,
         "nickname": db_user.nickname,
-        "profile_image_url": db_user.profile_image_url,
     }
 
 # ─────────────────────────────────────────────────────────
@@ -139,9 +137,6 @@ def update_me(
         request.session["user"]["nickname"] = db_user.nickname
 
     # 프로필 이미지 변경 처리
-    if payload.profile_image_url is not None:
-        db_user.profile_image_url = payload.profile_image_url
-        request.session["user"]["profile_image_url"] = db_user.profile_image_url
 
     try:
         db.commit()
@@ -155,7 +150,6 @@ def update_me(
         "id": db_user.id,
         "nickname": db_user.nickname,
         "email": getattr(db_user, "email", None),
-        "profile_image_url": db_user.profile_image_url,
     }
 
 # ─────────────────────────────────────────────────────────
@@ -178,19 +172,25 @@ def check_nickname(nickname: str, db: Session = Depends(get_db)):
 # ─────────────────────────────────────────────────────────
 # CSRF 재발급
 # ─────────────────────────────────────────────────────────
+# ✅ 수정된 CSRF 엔드포인트
 @router.get("/csrf")
-def get_csrf(request: Request, response: Response, user=Depends(require_auth)):
-    csrf = request.session.get("csrf")
-    if not csrf:
-        csrf = secrets.token_urlsafe(32)
-        request.session["csrf"] = csrf
+def get_csrf(request: Request, response: Response):
+    # 세션 초기화 (없으면 새로)
+    if "csrf" not in request.session:
+        request.session["csrf"] = secrets.token_urlsafe(32)
+
+    # 굳이 만료(exp)는 로그인 후에만 쓰자. (여기선 설정 안 해도 됨)
+    csrf = request.session["csrf"]
+
+    # 브라우저에서 읽을 수 있도록(헤더에 넣어 보내기 위함)
     response.set_cookie(
         key="csrf_token",
         value=csrf,
-        httponly=False,
-        secure=False,
-        samesite="Lax",
+        httponly=False,   # 헤더 전송용으로 JS에서 읽게
+        secure=False,     # HTTPS면 True 권장
+        samesite="Lax",   # 동일 오리진이면 Lax도 OK
         path="/",
         max_age=SESSION_MAX_MIN * 60,
     )
-    return {"ok": True}
+    return {"csrf": csrf}   # 바디에도 담아 줌
+
