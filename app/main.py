@@ -115,3 +115,14 @@ def health():
 
 # uvicorn이 찾을 엔트리포인트
 app = api
+
+# app/main.py
+from fastapi import Request
+
+@app.middleware("http")
+async def dbg_cookie_mw(request: Request, call_next):
+    if request.url.path.startswith("/api/recommendations"):
+        print("[DBG] Cookie header:", request.headers.get("cookie"))
+        print("[DBG] Authorization:", request.headers.get("authorization"))
+    return await call_next(request)
+

@@ -31,6 +31,8 @@ def require_auth(request: Request):
     user = request.session.get("user")
     exp  = request.session.get("exp")
     now  = int(time.time())
+    print("[AUTH] cookies keys:", list(request.cookies.keys()))
+    print("[AUTH] session cookie:", request.cookies.get("session"))
 
     if not user or not exp or now >= exp:
         # 만료 또는 세션 없음 → 정리 후 401
@@ -82,7 +84,7 @@ def login(payload: UserLogin, request: Request, response: Response, db: Session 
         value=csrf,
         httponly=True,
         secure=False,
-        samesite="None",
+        samesite="lax",
         path="/",
         max_age=SESSION_MAX_MIN * 60,
     )
