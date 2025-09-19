@@ -12,16 +12,79 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { useTravelStore } from "@/store/travelStore"; // ✅ 추가
+import { useTravelStore } from "@/store/travelStore";
 
-const API = import.meta.env.VITE_BACKEND_ADDRESS ?? "";
+/** ✅ 항상 프록시를 타게 상대경로만 사용 (vite proxy가 백엔드로 전달) */
+const API = ""; // import.meta.env.VITE_BACKEND_ADDRESS ?? "";
 
-// ✅ 쿠키에서 CSRF 읽기
+/* ---------------- CSRF / 공통 fetch 유틸 ---------------- */
 function getCsrfFromCookie() {
-  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+  // 1순위: csrf (서버가 이걸 비교하는 듯)
+  const m1 = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+  if (m1) return decodeURIComponent(m1[1]);
+
+  // 2순위: csrf_token (없으면 이걸 사용)
+  const m2 = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m2 ? decodeURIComponent(m2[1]) : null;
 }
 
+async function ensureCsrf(base = API) {
+  if (getCsrfFromCookie()) return;
+  await fetch(`${base}/api/auth/csrf`, { credentials: "include" }).catch(() => {});
+}
+
+async function postWithCsrf(
+  url: string,
+  body: unknown,
+  token?: string | null
+): Promise<Response> {
+  // 항상 최신 CSRF 보장
+  await ensureCsrf();
+
+  const buildHeaders = () => {
+    const csrf = getCsrfFromCookie(); // 쿠키에서 즉시 읽기(캐싱 금지)
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+    if (csrf) {
+      // 서버는 X-CSRF-Token을 읽도록 구현 (다른 케이스 필요 없게 단일화)
+      h["X-CSRF-Token"] = csrf;
+    }
+    return h;
+  };
+
+  // 🔎 디버그
+  console.log("[CSRF 디버그] 보내기 직전", {
+    cookie: document.cookie,
+    headers: buildHeaders(),
+  });
+
+  const doFetch = () =>
+    fetch(url, {
+      method: "POST",
+      headers: buildHeaders(),
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+
+  let res = await doFetch();
+
+  if (res.status === 403) {
+    console.warn("[CSRF 디버그] 403 → CSRF 재발급 후 재시도");
+    await fetch(`${API}/api/auth/csrf`, { credentials: "include" }).catch(() => {});
+    res = await doFetch();
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error("[rating] fail", res.status, text);
+  }
+
+  return res;
+}
+
+/* ---------------- 타입 ---------------- */
 type RecItem = {
   id: number;
   title: unknown;
@@ -30,22 +93,26 @@ type RecItem = {
   rating?: number | null;
 };
 
+/* ---------------- 페이지 ---------------- */
 export default function MyPage() {
   const navigate = useNavigate();
 
-  // auth
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const nickname = user?.nickname ?? "사용자";
 
-  // ✅ survey 초기화 액션들
   const resetExceptNickname = useTravelStore((s) => s.resetExceptNickname);
   const setTravelWith = useTravelStore((s) => s.setTravelWith);
 
-  // 리스트 상태
   const [items, setItems] = useState<RecItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // 첫 마운트 시 CSRF 쿠키 미리 발급
+  useEffect(() => {
+    fetch(`${API}/api/auth/csrf`, { credentials: "include" }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -55,8 +122,13 @@ export default function MyPage() {
         setErr(null);
         const res = await fetch(`${API}/api/recommendations/my`, {
           credentials: "include",
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
         });
+
         if (res.status === 401) {
+          // 세션 만료 → 로그인 페이지로
           logout();
           navigate("/login");
           return;
@@ -73,15 +145,9 @@ export default function MyPage() {
     return () => {
       alive = false;
     };
-  }, [navigate, logout]);
+  }, [navigate, logout, token]);
 
-  // (선택) CSRF 토큰 재발급용
-  const fetchCsrf = async () => {
-    try {
-      await fetch(`${API}/api/auth/csrf`, { credentials: "include" });
-    } catch {}
-  };
-
+  /** ⭐ 평점 저장 */
   const rate = async (recId: number, rating: number) => {
     if (!items) return;
 
@@ -89,35 +155,24 @@ export default function MyPage() {
     const next = items.map((it) => (it.id === recId ? { ...it, rating } : it));
     setItems(next);
 
-    const postRating = async () => {
-      const csrf = getCsrfFromCookie();
-      const res = await fetch(`${API}/api/recommendations/${recId}/rating`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-        },
-        body: JSON.stringify({ rating }),
-      });
-      return res;
-    };
-
     try {
-      let res = await postRating();
+      const res = await postWithCsrf(
+        `${API}/api/recommendations/${recId}/rating`,
+        { rating },
+        token
+      );
 
       if (res.status === 401) {
+        setItems(prev);
         logout();
         navigate("/login");
         return;
       }
 
-      if (res.status === 403) {
-        await fetchCsrf();
-        res = await postRating();
+      if (!res.ok) {
+        setItems(prev);
+        alert("평점 저장에 실패했어요. 잠시 후 다시 시도해 주세요.");
       }
-
-      if (!res.ok) throw new Error(`rate failed: ${res.status}`);
     } catch {
       setItems(prev);
       alert("평점 저장에 실패했어요. 잠시 후 다시 시도해 주세요.");
@@ -126,14 +181,10 @@ export default function MyPage() {
 
   const hasItems = useMemo(() => (items?.length ?? 0) > 0, [items]);
 
-  // ✅ 설문 완전 새로 시작
   function restartSurvey() {
-    // zustand + localStorage 동시 초기화 (닉네임만 유지)
     resetExceptNickname();
     setTravelWith(null);
-
-    // 혹시 남아있을 예전 키들도 깔끔하게 제거(안전망)
-    const keysToClear = [
+    [
       "travelWith",
       "actType",
       "schedule",
@@ -146,10 +197,7 @@ export default function MyPage() {
       "returnSlot",
       "departWindow",
       "returnWindow",
-    ];
-    keysToClear.forEach((k) => localStorage.removeItem(k));
-
-    // 설문 시작 단계로 이동 (프로젝트 흐름에 맞춰 조정)
+    ].forEach((k) => localStorage.removeItem(k));
     navigate("/step2?fresh=1");
   }
 
@@ -171,16 +219,6 @@ export default function MyPage() {
                     src={user.profile_image_url}
                     alt="프로필 이미지"
                     className="h-full w-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                      const parent = (e.target as HTMLImageElement).parentElement;
-                      if (parent) {
-                        parent.innerHTML = `<span class="text-lg font-bold text-gray-700">${getInitials(
-                          nickname
-                        )}</span>`;
-                      }
-                    }}
-                    referrerPolicy="no-referrer"
                   />
                 ) : (
                   <span className="text-lg font-bold text-gray-700">
@@ -237,7 +275,7 @@ export default function MyPage() {
           </div>
         </div>
 
-        {/* 추가 메뉴: 2칸 그리드 */}
+        {/* 추가 메뉴 */}
         <div className="grid grid-cols-2 gap-3 mb-8">
           <SecondaryTile
             icon={<UserRound className="w-5 h-5" />}
@@ -306,8 +344,7 @@ export default function MyPage() {
   );
 }
 
-/* ───────── 유틸 & 하위 컴포넌트 ───────── */
-
+/* ---------------- 하위 컴포넌트 & 유틸 ---------------- */
 function getInitials(name: string) {
   const t = (name || "").trim();
   if (!t) return "U";
@@ -409,10 +446,8 @@ function RecommendationCard({
   onRate: (v: number) => void;
 }) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
   const list = summariesFrom(item.summary, item.title);
   const first = list[0];
-  const moreCount = Math.max(0, list.length - 1);
 
   return (
     <div className="rounded-2xl bg-white p-4 shadow-md hover:shadow-lg transition-shadow border border-gray-100">
@@ -433,26 +468,7 @@ function RecommendationCard({
             </p>
           )}
         </div>
-        {moreCount > 0 && (
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="shrink-0 text-xs px-3 py-1.5 rounded-full border border-gray-200 hover:border-gray-300 text-gray-600 hover:text-gray-800"
-          >
-            {open ? "접기" : `자세히 보기 · ${moreCount}개`}
-          </button>
-        )}
       </div>
-
-      {/* 펼침 UI가 필요하면 주석 해제
-      {open && moreCount > 0 && (
-        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
-          {list.slice(1).map((c, i) => (
-            <li key={i}>
-              <span className="font-medium text-gray-800">{c.cityTitle}</span> · {c.text}
-            </li>
-          ))}
-        </ul>
-      )} */}
 
       <div className="mt-3 flex items-center gap-3">
         <StarRating value={item.rating ?? 0} onChange={onRate} size={22} />
