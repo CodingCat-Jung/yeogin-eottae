@@ -271,6 +271,13 @@ export default function Result() {
           await fetch(`${API}${csrfPath}`, {
             method: "GET",
             credentials: "include",
+            headers: {
+              // ✅ CSRF도 한국어 헤더로 맞춰주기(선택)
+              "Accept-Language":
+                (navigator.languages && navigator.languages[0]) ||
+                navigator.language ||
+                "ko",
+            },
           });
           token = CSRF_COOKIE_CANDIDATES.map(getCookie).find(Boolean) ?? null;
         } catch {
@@ -398,11 +405,23 @@ export default function Result() {
             depart_window: departWindow || null,
             return_window: returnWindow || null,
           },
+          // ✅ 백엔드가 body의 lang을 참조하는 경우 대비하여 명시
+          lang: "ko",
         };
+
+        // ✅ 언어 헤더 결정 (ko 계열 아니면 ko로 강제)
+        const acceptLang =
+          (navigator.languages && navigator.languages[0]) ||
+          navigator.language ||
+          "ko";
+        const langHeader = acceptLang.toLowerCase().startsWith("ko")
+          ? acceptLang
+          : "ko";
 
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           Accept: "application/json",
+          "Accept-Language": langHeader, // ★ 추가
         };
         if (!useCookieAuth) {
           headers.Authorization = `Bearer ${token}`;
@@ -483,7 +502,8 @@ export default function Result() {
         }));
 
         // 중복 제거(같은 도시/국가/첫째날 길이 동일 시 중복으로 판단)
-        list = dedupeRecs(list);
+        list = (list || []).length ? list : [];
+        list = list.length ? dedupeRecs(list) : [];
 
         console.timeEnd("recommend");
         console.log("[PARSED] items =", list.length);
