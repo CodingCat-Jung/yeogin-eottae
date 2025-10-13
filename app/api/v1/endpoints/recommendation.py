@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -11,7 +11,11 @@ from app.api.v1.endpoints.auth import require_auth
 from app.models.recommendation import Recommendation
 from app.models.survey import Survey
 from app.schemas.recommendation import RatingUpdate
-from app.core.csrf import issue_csrf_cookie_if_needed, verify_csrf  # ✅ 추가
+from app.core.csrf import issue_csrf_cookie_if_needed, verify_csrf
+
+# ✅ 추가: 설문 스키마 + RAG 서비스
+from app.schemas.survey import SurveyCreate
+from app.services import rag_service
 
 router = APIRouter()
 
@@ -189,3 +193,61 @@ def rate_recommendation(
     db.refresh(rec)
 
     return {"ok": True, "id": rec.id, "rating": rec.rating}
+
+
+# ===============================
+# ✅ 새로 추가: 설문 → 즉시 추천 생성
+# ===============================
+@router.post("/survey/recommend")
+def create_recommendation_from_survey(
+    payload: SurveyCreate,
+    request: Request,
+    response: Response,
+    user=Depends(require_auth),          # 공개 엔드포인트로 열려야 하면 Depends 제거
+    db: Session = Depends(get_db),
+):
+    """
+    프론트에서 보낸 설문 + 월 정보를 가지고 즉시 RAG 추천을 생성해서 반환.
+    DB 저장 없이 RAG만 호출하여 결과를 돌려준다.
+    """
+
+    # ✅ 쿠키 인증 기반이면 CSRF 더블서브밋 체크
+    verify_csrf(request)
+    # (선택) 쿠키에 CSRF가 없다면 발급 – 일관성 차원에서 유지
+    issue_csrf_cookie_if_needed(request, response)
+
+    # ✅ preferences를 평탄화해서 rag_service에 전달
+    prefs = {
+        "nickname": payload.nickname,
+        **payload.preferences.model_dump(exclude_none=True),
+    }
+    # 예시:
+    # {
+    #   "nickname": "...",
+    #   "companion": "...",
+    #   "style": [...],
+    #   "duration": "1박2일",
+    #   "budget": "...",
+    #   "climate": "...",
+    #   "continent": "...",
+    #   "density": "...",
+    #   "driving": "public",
+    #   "depart_window": "morning",
+    #   "return_window": "evening",
+    #   "travel_month": 11,          # 프론트에서 계산해 보낸 정수(1~12) 또는 None
+    #   "season": "FALL",            # 선택
+    # }
+
+    try:
+        out = rag_service.get_rag_recommendation(prefs)
+        # rag_service는 {"recommendation": [...], "prompt": "..."} 형태를 반환한다고 가정.
+        # 프론트에서 배열/ data/ results 어떤 키든 처리하지만, 일관성 위해 data 키로 감쌈.
+        return {
+            "data": out.get("recommendation", []),
+            "debug": {
+                "prompt": out.get("prompt"),
+            },
+        }
+    except Exception as e:
+        # 필요한 경우 logger.exception(...)으로 상세 로깅
+        raise HTTPException(status_code=500, detail=str(e))

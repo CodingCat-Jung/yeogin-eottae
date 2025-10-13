@@ -2,7 +2,6 @@
 import os
 import pprint
 from dotenv import load_dotenv
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
@@ -31,11 +30,14 @@ from app.api.v1.endpoints import recommendation as recommendation
 from app.api.v1.endpoints import savebox as savebox  # 보관함/위시리스트
 from app.api.v1.endpoints import upload as upload    # ✅ 업로드 라우터 추가
 
+from app.core.logging import setup_logging
+setup_logging()
+
 # 4) FastAPI 인스턴스 (변수명: api)
 api = FastAPI(title="Travia API")
 
 # 5) CORS
-front_origins_env = os.getenv("FRONT_ORIGINS", "http://34.47.89.151,http://localhost:5173")
+front_origins_env = os.getenv("FRONT_ORIGINS", "http://localhost:5173")
 allow_origins = [o.strip() for o in front_origins_env.split(",") if o.strip()]
 api.add_middleware(
     CORSMiddleware,
@@ -115,14 +117,3 @@ def health():
 
 # uvicorn이 찾을 엔트리포인트
 app = api
-
-# app/main.py
-from fastapi import Request
-
-@app.middleware("http")
-async def dbg_cookie_mw(request: Request, call_next):
-    if request.url.path.startswith("/api/recommendations"):
-        print("[DBG] Cookie header:", request.headers.get("cookie"))
-        print("[DBG] Authorization:", request.headers.get("authorization"))
-    return await call_next(request)
-
