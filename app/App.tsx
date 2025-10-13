@@ -1,5 +1,6 @@
 // app/App.tsx
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";                    // ✅ 추가
 import AppLayout from "./AppLayout";
 
 import Home from "./routes/index";
@@ -16,6 +17,8 @@ import Mypage from "./routes/mypage";
 import HistoryDetail from "./routes/HistoryDetail";
 import Wishlist from "./routes/Wishlist";
 import Profile from "./routes/profile";
+import Month from "./routes/month";
+
 import { useAuthStore } from "@/store/authStore";
 
 /** 보호 라우트 */
@@ -24,7 +27,6 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
 
   if (!initialized) {
-    // ✅ 초기화 중 로딩 화면
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fff8f1]">
         <div className="h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />
@@ -53,6 +55,12 @@ function LoginGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  // ✅ 앱 시작 시 한 번만 세션 복구 (세션 쿠키 기반 /api/auth/me 호출 포함)
+  const initialize = useAuthStore((s) => s.initialize);
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
@@ -60,14 +68,15 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/signup" element={<LoginGuard><Signup /></LoginGuard>} />
         <Route path="/login" element={<LoginGuard><Login /></LoginGuard>} />
-        <Route path="/step2" element={<Step2 />} />
+        <Route path="/month" element={<Month />} />       {/* ✅ 월 선택 */}
+        <Route path="/step2" element={<Step2 />} />       {/* ✅ month → step2 */}
         <Route path="/step3" element={<Step3 />} />
         <Route path="/step4" element={<Step4 />} />
         <Route path="/step5" element={<Step5 />} />
         <Route path="/step-time" element={<StepTime />} />
         <Route path="/result" element={<Result />} />
         {/*
-          🔐 만약 추천 결과도 로그인 사용자에게만 보이게 하려면 위 한 줄을 아래처럼 교체:
+          결과도 로그인 필요하게 하려면 아래로 교체
           <Route path="/result" element={<RequireAuth><Result /></RequireAuth>} />
         */}
 
@@ -112,7 +121,7 @@ export default function App() {
             </RequireAuth>
           }
         />
-
+q
         {/* 404 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

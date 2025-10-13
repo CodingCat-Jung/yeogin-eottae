@@ -14,7 +14,7 @@ export default function Login() {
   const navigate = useNavigate();
   const { search } = useLocation();
   const params = new URLSearchParams(search);
-  const returnUrl = decodeURIComponent(params.get("re_uri") || "/step2");
+  const returnUrl = decodeURIComponent(params.get("re_uri") || "/month");
   const prefillNickname = params.get("nickname") || "";
 
   const [form, setForm] = useState({ nickname: "", password: "" });

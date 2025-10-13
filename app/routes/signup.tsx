@@ -8,12 +8,13 @@ import { useTravelStore } from "@/store/travelStore";
 import { useAuthStore } from "@/store/authStore";
 
 const API_BASE = "";//import.meta.env.VITE_BACKEND_ADDRESS || "http://127.0.0.1:8000";
+console.log("API_BASE =", import.meta.env.VITE_BACKEND_ADDRESS); // ✅ 여기!
 
 export default function Signup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialNickname = searchParams.get("nickname") || "";
-  const reUri = searchParams.get("re_uri") || "/step2";
+  const reUri = searchParams.get("re_uri") || "/month";
 
   const [form, setForm] = useState({ nickname: "", password: "" });
   const [showPw, setShowPw] = useState(false);

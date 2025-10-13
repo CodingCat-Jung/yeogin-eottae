@@ -1,5 +1,5 @@
 // app/routes/mypage.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Clock4,
@@ -9,6 +9,7 @@ import {
   Heart,
   Star,
   Loader2,
+  Camera,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
@@ -17,13 +18,23 @@ import { useTravelStore } from "@/store/travelStore";
 /** ✅ 항상 프록시를 타게 상대경로만 사용 (vite proxy가 백엔드로 전달) */
 const API = ""; // import.meta.env.VITE_BACKEND_ADDRESS ?? "";
 
+/* ---------- URL 유틸 (절대경로 보정 + 캐시 버스트) ---------- */
+// ✅ 절대 URL 보정 함수
+const toAbs = (src?: string | null) => {
+  if (!src) return "";
+  if (/^https?:\/\//i.test(src)) return src; // 이미 절대경로
+  if (src.startsWith("//")) return window.location.protocol + src; // //uploads/...
+  return `${API}${src.startsWith("/") ? src : `/${src}`}`;
+};
+
+// ✅ 캐시 버스트 유틸
+const cacheBust = (src?: string | null, ver?: string | number | null) =>
+  !src ? "" : src.includes("?") ? `${src}&v=${ver ?? Date.now()}` : `${src}?v=${ver ?? Date.now()}`;
+
 /* ---------------- CSRF / 공통 fetch 유틸 ---------------- */
 function getCsrfFromCookie() {
-  // 1순위: csrf (서버가 이걸 비교하는 듯)
   const m1 = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
   if (m1) return decodeURIComponent(m1[1]);
-
-  // 2순위: csrf_token (없으면 이걸 사용)
   const m2 = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
   return m2 ? decodeURIComponent(m2[1]) : null;
 }
@@ -38,27 +49,17 @@ async function postWithCsrf(
   body: unknown,
   token?: string | null
 ): Promise<Response> {
-  // 항상 최신 CSRF 보장
   await ensureCsrf();
 
   const buildHeaders = () => {
-    const csrf = getCsrfFromCookie(); // 쿠키에서 즉시 읽기(캐싱 금지)
+    const csrf = getCsrfFromCookie();
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
-    if (csrf) {
-      // 서버는 X-CSRF-Token을 읽도록 구현 (다른 케이스 필요 없게 단일화)
-      h["X-CSRF-Token"] = csrf;
-    }
+    if (csrf) h["X-CSRF-Token"] = csrf;
     return h;
   };
-
-  // 🔎 디버그
-  console.log("[CSRF 디버그] 보내기 직전", {
-    cookie: document.cookie,
-    headers: buildHeaders(),
-  });
 
   const doFetch = () =>
     fetch(url, {
@@ -69,16 +70,9 @@ async function postWithCsrf(
     });
 
   let res = await doFetch();
-
   if (res.status === 403) {
-    console.warn("[CSRF 디버그] 403 → CSRF 재발급 후 재시도");
     await fetch(`${API}/api/auth/csrf`, { credentials: "include" }).catch(() => {});
     res = await doFetch();
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.error("[rating] fail", res.status, text);
   }
 
   return res;
@@ -100,6 +94,8 @@ export default function MyPage() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
+  const hydrateUserFromAPI = useAuthStore((s) => s.hydrateUserFromAPI);
+  const setUser = useAuthStore((s) => s.setUser);
   const nickname = user?.nickname ?? "사용자";
 
   const resetExceptNickname = useTravelStore((s) => s.resetExceptNickname);
@@ -109,11 +105,23 @@ export default function MyPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // 첫 마운트 시 CSRF 쿠키 미리 발급
+  // 파일 input ref (업로드 버튼에서 클릭 트리거)
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // ✅ 새로고침 직후 user 비어 있으면 me로 복원
+  useEffect(() => {
+    if (!user) {
+      hydrateUserFromAPI();
+    }
+  }, [user, hydrateUserFromAPI]);
+
+  // CSRF 쿠키 선발급
   useEffect(() => {
     fetch(`${API}/api/auth/csrf`, { credentials: "include" }).catch(() => {});
   }, []);
 
+  // 내 추천 내역 가져오기
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -122,13 +130,9 @@ export default function MyPage() {
         setErr(null);
         const res = await fetch(`${API}/api/recommendations/my`, {
           credentials: "include",
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-
         if (res.status === 401) {
-          // 세션 만료 → 로그인 페이지로
           logout();
           navigate("/login");
           return;
@@ -150,7 +154,6 @@ export default function MyPage() {
   /** ⭐ 평점 저장 */
   const rate = async (recId: number, rating: number) => {
     if (!items) return;
-
     const prev = items;
     const next = items.map((it) => (it.id === recId ? { ...it, rating } : it));
     setItems(next);
@@ -176,6 +179,61 @@ export default function MyPage() {
     } catch {
       setItems(prev);
       alert("평점 저장에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    }
+  };
+
+  /** ✅ 프로필 이미지 업로드 → 즉시 반영 */
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 같은 파일 재선택 가능하도록 reset
+    if (!file) return;
+
+    // 간단한 클라이언트 검증
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      alert("PNG/JPEG/WebP 이미지 파일만 업로드할 수 있어요.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("최대 5MB까지 업로드할 수 있어요.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("/api/upload/avatar", {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+
+      if (res.status === 401) {
+        alert("세션이 만료되었어요. 다시 로그인해 주세요.");
+        logout();
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(`업로드 실패(${res.status})`);
+      }
+
+      const data = await res.json(); // { ok, profile_image_url, updated_at }
+      if (data?.ok) {
+        const prev = useAuthStore.getState().user;
+        setUser({
+          ...(prev ?? {}),
+          profile_image_url: data.profile_image_url,
+          updated_at:
+            typeof data.updated_at === "number" ? data.updated_at : Date.now(),
+        } as any);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("프로필 이미지 업로드에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -216,7 +274,7 @@ export default function MyPage() {
               <div className="h-full w-full rounded-full bg-white overflow-hidden flex items-center justify-center">
                 {user?.profile_image_url ? (
                   <img
-                    src={user.profile_image_url}
+                    src={cacheBust(toAbs(user.profile_image_url), user?.updated_at)}
                     alt="프로필 이미지"
                     className="h-full w-full object-cover"
                   />
@@ -227,11 +285,30 @@ export default function MyPage() {
                 )}
               </div>
             </div>
+
+            {/* 온라인 점 + 업로드 버튼 */}
             <span
               aria-hidden
               className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-green-400 ring-2 ring-white"
             />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="absolute -top-1 -right-1 h-7 w-7 rounded-full bg-white shadow hover:shadow-md border border-gray-200 flex items-center justify-center"
+              title="프로필 이미지 변경"
+              disabled={uploading}
+            >
+              <Camera className="w-4 h-4 text-gray-700" />
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={handleAvatarUpload}
+              className="hidden"
+            />
           </div>
+
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900">
               {nickname}님
@@ -242,6 +319,11 @@ export default function MyPage() {
               </span>
               이 여기에 고스란히 담겨 있어요.
             </p>
+            {uploading && (
+              <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> 이미지 업로드 중…
+              </p>
+            )}
           </div>
         </div>
 

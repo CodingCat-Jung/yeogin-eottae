@@ -4,37 +4,45 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="위시리시트, 프로필 수정 완료">
+    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="배포">
+      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19__2_59__Changes_.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19_오후_2_59_[Changes]/shelved.patch" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19_오후_2_59_[Changes]1/shelved.patch" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/components/MapView.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/components/MapViewEnhanced.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/routes/month.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/types/map.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/AppLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/AppLayout.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/components/HistoryList.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/HistoryList.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/components/Navbar.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/Navbar.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/lib/api.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/lib/api.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/router/index.tsx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/history.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/history.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/router.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/router.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/login.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/login.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/mypage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/mypage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/profile.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/profile.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/result.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/result.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/signup.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/signup.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/step-time.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/step-time.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/step4.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/step4.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/step5.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/step5.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/store/authStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/store/authStore.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/store/travelStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/store/travelStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/vite.config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Dockerfile" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="master" />
+        <entry key="$PROJECT_DIR$" value="FE" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -72,7 +80,7 @@
   &quot;keyToString&quot;: {
     &quot;JavaScript Debug.localhost:5173.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;FE&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;deploy-front&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
     &quot;last_opened_file_path&quot;: &quot;C:/Users/jaypark/Desktop/pizza&quot;,
@@ -96,6 +104,8 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="JavaScript Debug.localhost:5173" />
+        <item itemvalue="JavaScript Debug.localhost:5173" />
         <item itemvalue="JavaScript Debug.localhost:5173" />
       </list>
     </recent_temporary>
@@ -153,11 +163,17 @@
       <workItem from="1757519765023" duration="5153000" />
       <workItem from="1757573319180" duration="10366000" />
       <workItem from="1757657018945" duration="9586000" />
-      <workItem from="1757745371527" duration="10544000" />
-      <workItem from="1758005699484" duration="1500000" />
-      <workItem from="1758011551365" duration="5820000" />
-      <workItem from="1758099793114" duration="3401000" />
-      <workItem from="1758171192327" duration="6738000" />
+      <workItem from="1757745371527" duration="9593000" />
+      <workItem from="1758264534894" duration="83000" />
+      <workItem from="1758347939468" duration="4447000" />
+      <workItem from="1759380557362" duration="6028000" />
+      <workItem from="1759734345501" duration="1655000" />
+      <workItem from="1759798466115" duration="797000" />
+      <workItem from="1759816381677" duration="2662000" />
+      <workItem from="1759900390291" duration="7537000" />
+      <workItem from="1759989896838" duration="21860000" />
+      <workItem from="1760204818639" duration="230000" />
+      <workItem from="1760244905030" duration="11758000" />
     </task>
     <task id="LOCAL-00001" summary="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)">
       <option name="closed" value="true" />
@@ -167,15 +183,23 @@
       <option name="project" value="LOCAL" />
       <updated>1756806235199</updated>
     </task>
-    <task id="LOCAL-00002" summary="위시리시트, 프로필 수정 완료">
+    <task id="LOCAL-00002" summary="평점 저장 수정">
       <option name="closed" value="true" />
-      <created>1757756275246</created>
+      <created>1758262199841</created>
       <option name="number" value="00002" />
       <option name="presentableId" value="LOCAL-00002" />
       <option name="project" value="LOCAL" />
-      <updated>1757756275246</updated>
+      <updated>1758262199841</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="배포">
+      <option name="closed" value="true" />
+      <created>1758354171965</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1758354171966</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -194,8 +218,9 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)" />
-    <MESSAGE value="위시리시트, 프로필 수정 완료" />
-    <option name="LAST_COMMIT_MESSAGE" value="위시리시트, 프로필 수정 완료" />
+    <MESSAGE value="평점 저장 수정" />
+    <MESSAGE value="배포" />
+    <option name="LAST_COMMIT_MESSAGE" value="배포" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

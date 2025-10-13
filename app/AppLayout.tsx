@@ -1,4 +1,4 @@
-// app/layouts/AppLayout.tsx (또는 현재 파일 경로)
+// app/AppLayout.tsx (또는 현재 파일 경로)
 import { Outlet } from "react-router-dom";
 import NavBar, { NavSpacer } from "@/components/Navbar"; // 파일명이 Navbar라면 경로/이름 맞춰주세요
 

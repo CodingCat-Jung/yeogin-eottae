@@ -180,7 +180,7 @@ export default function NavBar() {
   /** 설문 새 시작 (닉네임만 유지) */
   const goSurveyFresh = useCallback(() => {
     if (!user) {
-      navigate(`/login?re_uri=${encodeURIComponent("/step2")}`);
+      navigate(`/login?re_uri=${encodeURIComponent("/month")}`);
       return;
     }
     // ✅ store 초기화
@@ -203,7 +203,7 @@ export default function NavBar() {
       "returnWindow",
     ].forEach((k) => localStorage.removeItem(k));
 
-    navigate("/step2");
+    navigate("/month");
   }, [user, navigate, resetExceptNickname, setTravelWith]);
 
   const greetName = useMemo(
@@ -228,7 +228,7 @@ export default function NavBar() {
         </Link>
 
         <div className="flex items-center gap-6 text-sm">
-          <button onClick={goSurveyFresh} className={linkStyle("/step2")}>
+          <button onClick={goSurveyFresh} className={linkStyle("/month")}>
             설문
           </button>
           <button

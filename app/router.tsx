@@ -8,12 +8,14 @@ import HistoryDetailPage from "./routes/HistoryDetail";
 import WishlistPage from "./routes/Wishlist";
 import ProfilePage from "./routes/profile";     // ✅ 프로필 추가
 import ProtectedRoute from "./routes/ProtectedRoute";
+import MonthPage from "./routes/month";
 
 export const router = createBrowserRouter([
   {
     element: <AppLayout />,
     children: [
       { path: "/login", element: <LoginPage /> },
+      { path: "/month", element: <MonthPage /> },
 
       {
         element: <ProtectedRoute />,
