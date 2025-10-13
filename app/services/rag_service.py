@@ -84,7 +84,6 @@
 
 
 # app/services/rag_service.py
-# app/services/rag_service.py
 import os
 import json
 import math
