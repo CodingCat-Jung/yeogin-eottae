@@ -4,28 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="배포">
-      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19__2_59__Changes_.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19_오후_2_59_[Changes]/shelved.patch" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-09-19_오후_2_59_[Changes]1/shelved.patch" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/components/MapView.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/components/MapViewEnhanced.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/routes/month.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/types/map.ts" afterDir="false" />
+    <list default="true" id="63cdbd60-2fba-4a31-9fd2-bc045f4cc03d" name="Changes" comment="지도 , 숙소 추천 추가">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/AppLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/AppLayout.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/components/HistoryList.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/HistoryList.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/components/Navbar.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/Navbar.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/router.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/router.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/login.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/login.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/mypage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/mypage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/components/HistorySection.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/components/HistorySection.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/HistoryDetail.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/routes/history.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/history.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/routes/result.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/result.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/routes/signup.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/routes/signup.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/store/authStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/store/authStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/store/travelStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/store/travelStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -173,7 +158,12 @@
       <workItem from="1759900390291" duration="7537000" />
       <workItem from="1759989896838" duration="21860000" />
       <workItem from="1760204818639" duration="230000" />
-      <workItem from="1760244905030" duration="11758000" />
+      <workItem from="1760244905030" duration="12581000" />
+      <workItem from="1760418553387" duration="24295000" />
+      <workItem from="1760527489673" duration="700000" />
+      <workItem from="1760528764510" duration="564000" />
+      <workItem from="1760534122199" duration="5189000" />
+      <workItem from="1760615508892" duration="4983000" />
     </task>
     <task id="LOCAL-00001" summary="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)">
       <option name="closed" value="true" />
@@ -199,7 +189,15 @@
       <option name="project" value="LOCAL" />
       <updated>1758354171966</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="지도 , 숙소 추천 추가">
+      <option name="closed" value="true" />
+      <created>1760344270289</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1760344270290</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -220,7 +218,8 @@
     <MESSAGE value="추후 마이페이지 (정보수정, 위시리스트, 북마크 기능 추가)" />
     <MESSAGE value="평점 저장 수정" />
     <MESSAGE value="배포" />
-    <option name="LAST_COMMIT_MESSAGE" value="배포" />
+    <MESSAGE value="지도 , 숙소 추천 추가" />
+    <option name="LAST_COMMIT_MESSAGE" value="지도 , 숙소 추천 추가" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

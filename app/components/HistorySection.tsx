@@ -39,6 +39,11 @@ export type HistorySectionProps = {
       climate?: { icon?: string; value?: string };
       cont?: { icon?: string; value?: string };
       density?: { icon?: string; value?: string };
+      // 필요시 여기 새 필드들 추가
+      months?: string[]; // ["1월","3월"] 등
+      flexible?: { icon?: string; value?: string } | string | null;
+      departSlot?: { icon?: string; value?: string };
+      returnSlot?: { icon?: string; value?: string };
     };
     recommendation?: any;
   } | null;
@@ -53,6 +58,9 @@ export type HistorySectionProps = {
 
   /** “맞춤 추천 결과”가 열렸을 때 헤더 오른쪽(1/N 왼쪽)에 붙일 pill(위시/보관) */
   ControlsLeftActions?: () => JSX.Element;
+
+  /** ✅ 상단 헤더의 1/N 페이저 표시/숨김 */
+  hideHeaderPager?: boolean;
 };
 
 const Fade = ({ children }: { children: React.ReactNode }) => (
@@ -120,6 +128,7 @@ const HistorySection = ({
                           RecommendationSlot,
                           hideInnerHeader = false,
                           ControlsLeftActions,
+                          hideHeaderPager = false, // ✅ 기본값
                         }: HistorySectionProps): JSX.Element => {
   const hasList = Number.isFinite(total) && total > 0;
   const clampedIndex = hasList ? Math.min(Math.max(index, 0), total - 1) : 0;
@@ -128,7 +137,7 @@ const HistorySection = ({
   const [openVal, setOpenVal] = useState<string | undefined>("reco");
   const isRecoOpen = openVal === "reco";
 
-  // 인덱스/추천 변경 시에도 계속 "reco" 열어두기(원하면 제거해도 됨)
+  // 인덱스/추천 변경 시에도 계속 "reco" 열어두기
   useEffect(() => {
     setOpenVal("reco");
   }, [index, detail?.recommendation]);
@@ -152,12 +161,11 @@ const HistorySection = ({
             </div>
           </div>
 
-          {/* 헤더 오른쪽: (좌) 위시/보관 pill(열렸을 때만)  (우) 인덱스+네비(항상) */}
+          {/* 헤더 오른쪽: (좌) pill (우) 인덱스+네비 */}
           <div className="flex items-center gap-2">
             {isRecoOpen && ControlsLeftActions && (
               <div
                 className="flex items-center gap-2 shrink-0"
-                // ✅ 아코디언 닫힘 방지: pill 클릭 버블링 차단
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -166,36 +174,38 @@ const HistorySection = ({
               </div>
             )}
 
-            {/* 동그란 하트/북마크 아이콘은 제거됨 */}
-            <div className="flex items-center rounded-full bg-white/70 ring-1 ring-zinc-200 shadow-sm px-1.5 py-1 gap-1">
-              <div className="px-2 min-w-[72px] text-center">
-                <span className="text-sm font-semibold text-zinc-800">
-                  {hasList ? clampedIndex + 1 : "—"}
-                </span>
-                <span className="mx-1 text-zinc-400">/</span>
-                <span className="text-sm text-zinc-400">{hasList ? total : "—"}</span>
+            {/* ✅ 상단 1/N 페이저를 조건부로 */}
+            {!hideHeaderPager && (
+              <div className="flex items-center rounded-full bg-white/70 ring-1 ring-zinc-200 shadow-sm px-1.5 py-1 gap-1">
+                <div className="px-2 min-w-[72px] text-center">
+                  <span className="text-sm font-semibold text-zinc-800">
+                    {hasList ? clampedIndex + 1 : "—"}
+                  </span>
+                  <span className="mx-1 text-zinc-400">/</span>
+                  <span className="text-sm text-zinc-400">{hasList ? total : "—"}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={onPrev}
+                  disabled={!hasList || clampedIndex <= 0}
+                  className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
+                  aria-label="이전"
+                  title="이전"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={onNext}
+                  disabled={!hasList || clampedIndex >= total - 1}
+                  className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
+                  aria-label="다음"
+                  title="다음"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                onClick={onPrev}
-                disabled={!hasList || clampedIndex <= 0}
-                className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
-                aria-label="이전"
-                title="이전"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={onNext}
-                disabled={!hasList || clampedIndex >= total - 1}
-                className="h-8 w-8 rounded-full hover:bg-violet-50 text-violet-600 disabled:opacity-40"
-                aria-label="다음"
-                title="다음"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -236,6 +246,13 @@ const HistorySection = ({
                   {PrefCard("대륙", detail.preferences?.cont)}
                   {PrefCard("기온", detail.preferences?.climate, "🌡️")}
                   {PrefCard("인파 밀도", detail.preferences?.density)}
+                  {/* 필요시 추가 필드 */}
+                  {PrefCard("여행 월", detail.preferences?.months, "🗓️")}
+                  {PrefCard("출국 시간대", detail.preferences?.departSlot, "🛫")}
+                  {PrefCard("귀국 시간대", detail.preferences?.returnSlot, "🛬")}
+                  {detail.preferences?.flexible
+                    ? PrefCard("일정 유연함", detail.preferences?.flexible, "🔀")
+                    : null}
                 </div>
               </AccordionContent>
             </AccordionItem>

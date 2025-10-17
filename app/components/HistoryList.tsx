@@ -1,4 +1,3 @@
-// routes/HistoryList.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TriangleAlert, Copy } from "lucide-react";
@@ -72,16 +71,42 @@ const drivingMap: Record<string, { icon: string; value: string }> = {
   public: { icon: "🚌", value: "대중교통" }, car: { icon: "🚗", value: "자가용 운전" }, walk: { icon: "🚶", value: "도보 중심" },
 };
 const climateMap: Record<string, { icon: string; value: string }> = {
-  hot: { icon: "🔥", value: "더운 지역" }, warm: { icon: "🌤️", value: "따뜻한 지역" }, mild: { icon: "🌤️", value: "온화한 지역" },
-  fresh: { icon: "🍃", value: "선선한 지역" }, cold: { icon: "❄️", value: "추운 지역" },
+  hot: { icon: "🔥", value: "더운 지역" },
+  warm: { icon: "🌤️", value: "따뜻한 지역" },
+  mild: { icon: "🌤️", value: "온화한 지역" },
+  fresh: { icon: "🍃", value: "선선한 지역" },
+  cold: { icon: "❄️", value: "추운 지역" },
+  snowy: { icon: "🌨️", value: "눈 내리는 지역" }, // ✅ 백엔드 값 대응
 };
 const densityMap: Record<string, { icon: string; value: string }> = {
-  calm: { icon: "🌿", value: "여유로운 장소" }, normal: { icon: "🙂", value: "보통" }, active: { icon: "⚡", value: "활기찬 장소" }, crowded: { icon: "👥", value: "붐비는 장소" },
+  relaxed: { icon: "🌿", value: "느긋하게" },
+  calm: { icon: "🌿", value: "느긋하게" },
+  normal: { icon: "🙂", value: "적당히" },
+  moderate: { icon: "🙂", value: "적당히" },
+  active: { icon: "⚡", value: "활동적으로" },
+  fast: { icon: "⚡", value: "활동적으로" },
+  "0": { icon: "🌿", value: "느긋하게" },
+  "1": { icon: "🙂", value: "적당히" },
+  "2": { icon: "⚡", value: "활동적으로" },
 };
 const continentMap: Record<string, { icon: string; value: string }> = {
   asia: { icon: "🌏", value: "아시아" }, europe: { icon: "🌍", value: "유럽" }, africa: { icon: "🌍", value: "아프리카" }, oceania: { icon: "🌏", value: "오세아니아" },
   north_america: { icon: "🌎", value: "북미" }, south_america: { icon: "🌎", value: "남미" }, middle_east: { icon: "🌍", value: "중동" }, etc: { icon: "🗺️", value: "기타" },
   아시아: { icon: "🌏", value: "아시아" }, 유럽: { icon: "🌍", value: "유럽" },
+};
+const slotMap: Record<string, { icon: string; value: string }> = {
+  dawn: { icon: "🌙", value: "새벽" },
+  morning: { icon: "🌅", value: "오전" },
+  afternoon: { icon: "☀️", value: "오후" },
+  evening: { icon: "🌇", value: "저녁" },
+  새벽: { icon: "🌙", value: "새벽" },
+  오전: { icon: "🌅", value: "오전" },
+  오후: { icon: "☀️", value: "오후" },
+  저녁: { icon: "🌇", value: "저녁" },
+  "0": { icon: "🌙", value: "새벽" },
+  "1": { icon: "🌅", value: "오전" },
+  "2": { icon: "☀️", value: "오후" },
+  "3": { icon: "🌇", value: "저녁" },
 };
 
 function pick<T>(map: Record<string, T>, v: unknown): T | undefined {
@@ -104,27 +129,78 @@ function normalizeCompanionKey(v: unknown): string | undefined {
   if (companionIndexMap[lower]) return companionIndexMap[lower];
   return companionAlias[raw] || companionAlias[lower] || companionAlias[compact] || lower;
 }
+
+/* ============ 새: preferences → 표시형으로 변환 ============ */
 function humanizePreferences(raw: any = {}) {
-  const compRaw = pickCompanionField(raw);
+  const compRaw = pickCompanionField(raw) ?? raw.companion;
   const compKey = normalizeCompanionKey(compRaw);
   let comp = compKey ? companionMap[compKey] : undefined;
   if (!comp && compRaw != null && String(compRaw).trim() !== "") {
-    comp = { icon: "•", value: String(compRaw) };
+    comp = { icon: "👥", value: String(compRaw) };
   }
+
   const style =
     Array.isArray(raw.style) || Array.isArray(raw.styles)
       ? (raw.style ?? raw.styles).map((s: string) => styleMap[s] ?? s)
       : raw.style ? [styleMap[raw.style] ?? raw.style] : undefined;
 
+  const budget = formatBudget(raw.budget);
+  const duration = formatDuration(raw.duration);
+
+  const driving = pick(drivingMap, raw.driving);
+  const cont = pick(continentMap, raw.continent ?? raw.cont);
+  const climate =
+    pick(climateMap, raw.climate) ??
+    (raw.season ? { icon: "🌤️", value: String(raw.season) } : undefined);
+
+  const densityKey =
+    raw.density ?? raw.pace ?? raw.travel_pace ?? raw.speed ?? raw.velocity ?? raw.tempo;
+  const density =
+    densityKey != null && String(densityKey).trim() !== "-"
+      ? densityMap[String(densityKey)] ?? { icon: "•", value: String(densityKey) }
+      : undefined;
+
+  const toMonths = (v: any): string[] | undefined => {
+    if (v == null || v === "-" || v === "") return undefined;
+    if (Array.isArray(v)) {
+      const ns = v
+        .flatMap((x) => String(x).split(/[,\s]/).filter(Boolean))
+        .map(Number)
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 12);
+      return ns.length ? ns.map((n) => `${n}월`) : undefined;
+    }
+    const ns = String(v)
+      .split(/[,\s]/)
+      .filter(Boolean)
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 12);
+    return ns.length ? ns.map((n) => `${n}월`) : undefined;
+  };
+  const months =
+    toMonths(raw.travel_month) || toMonths(raw.months) || toMonths(raw.month);
+
+  const departSlot =
+    raw.depart_window != null
+      ? slotMap[String(raw.depart_window)] ?? { icon: "•", value: String(raw.depart_window) }
+      : undefined;
+
+  const returnSlot =
+    raw.return_window != null
+      ? slotMap[String(raw.return_window)] ?? { icon: "•", value: String(raw.return_window) }
+      : undefined;
+
   return {
     comp,
     style,
-    duration: formatDuration(raw.duration),
-    budget: formatBudget(raw.budget),
-    driving: pick(drivingMap, raw.driving),
-    climate: pick(climateMap, raw.climate),
-    cont: pick(continentMap, raw.continent ?? raw.cont),
-    density: pick(densityMap, raw.density),
+    duration,
+    budget,
+    driving,
+    cont,
+    climate,
+    density,
+    months,
+    departSlot,
+    returnSlot,
   };
 }
 
@@ -135,124 +211,60 @@ function dayLabelKR(key: string) {
   const m = key.match(/(\d+)/);
   return m ? `${m[1]}일차` : key.replace(/_/g, " ");
 }
-
-/** data 안에서 “추천 1건”을 최대한 찾아 꺼내기 */
 function unwrapRecommendationNode(input: any): any {
   if (!input) return null;
-
-  // 1) 흔한 래퍼 키들
   const direct =
-    input?.recommendation ??
-    input?.result ??
-    input?.data ??
-    input?.payload ??
-    input?.item ??
-    null;
+    input?.recommendation ?? input?.result ?? input?.data ?? input?.payload ?? input?.item ?? null;
   if (direct) return unwrapRecommendationNode(direct);
-
-  // 2) 배열이면 첫 아이템 사용 (History 화면은 보통 1건씩 표시)
   if (Array.isArray(input)) return input[0] ?? null;
-
-  // 3) 객체 내부에 배열형 추천 리스트가 있으면 그 첫 아이템 사용
   for (const v of Object.values(input)) {
     if (Array.isArray(v) && v.length && typeof v[0] === "object") {
-      // 배열 원소가 “도시/국가/이유/일정” 비슷한 속성을 가지면 추천으로 간주
-      const looksLikeRec = v.find((x: any) =>
-        x && (x.city || x.destination || x.country || x.nation || x.reason || x.explain || x.schedule || x.plan)
+      const looksLikeRec = v.find(
+        (x: any) => x && (x.city || x.destination || x.country || x.reason || x.schedule || x.plan)
       );
       if (looksLikeRec) return looksLikeRec;
     }
   }
-
-  // 4) 그래도 못 찾으면 원본을 그대로 시도
   return input;
 }
-
-/** 다양한 응답 형태에서 schedule만 안전하게 뽑기 */
 function extractSchedule(raw: any): Record<string, Act[]> {
   const candidate =
-    raw?.schedule ??
-    raw?.plan ??
-    raw?.itinerary ??
-    raw?.days ??
-    raw?.detail ??
-    raw?.schedules ??
-    raw?.plans ??
-    null;
+    raw?.schedule ?? raw?.plan ?? raw?.itinerary ?? raw?.days ?? raw?.detail ?? raw?.schedules ?? raw?.plans ?? null;
 
-  const makeAct = (a: any): Act => ({
-    time: a?.time ?? a?.at ?? a?.hour ?? "",
-    activity: a?.activity ?? a?.desc ?? a?.what ?? a?.title ?? a?.place ?? a?.name ?? "",
-  });
+  const makeAct = (a: any): Act => ({ time: a?.time ?? a?.at ?? a?.hour ?? "", activity: a?.activity ?? a?.desc ?? a?.what ?? a?.title ?? a?.place ?? a?.name ?? "" });
 
-  // 1) 객체 형태: { day_1: [ {time, activity}, ... ], ... }
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     const out: Record<string, Act[]> = {};
     for (const [k, v] of Object.entries(candidate)) {
-      if (Array.isArray(v)) {
-        // [string] 만 온 케이스도 커버
-        out[k] = v.map((x: any) =>
-          typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x)
-        );
-      }
+      if (Array.isArray(v)) out[k] = v.map((x: any) => (typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x)));
     }
     if (Object.keys(out).length) return out;
   }
-
-  // 2) 배열 전체가 타임라인인 케이스: [ {time, activity}, ... ] 또는 [ "설명", ... ]
   if (Array.isArray(candidate)) {
-    return {
-      day_1: candidate.map((x: any) =>
-        typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x)
-      ),
-    };
+    return { day_1: candidate.map((x: any) => (typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x))) };
   }
-
-  // 3) 원본 객체 어딘가에 day_* 키가 직접 들어있는 케이스
   if (raw && typeof raw === "object") {
     const out: Record<string, Act[]> = {};
     for (const [k, v] of Object.entries(raw)) {
       if (/^day[_\s-]?\d+/i.test(k) && Array.isArray(v)) {
-        out[k] = v.map((x: any) =>
-          typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x)
-        );
+        out[k] = v.map((x: any) => (typeof x === "string" ? ({ time: "", activity: x }) : makeAct(x)));
       }
     }
     if (Object.keys(out).length) return out;
   }
-
-  // 4) 마지막: 일정이 없을 수 있으니 빈 객체 반환
   return {};
 }
-
-/** 제목/이유 + 일정 텍스트로 직렬화 (일정이 없어도 reason만이라도 복사) */
 function buildItineraryText(input: any) {
   const data = unwrapRecommendationNode(input);
   if (!data) return "";
-
-  // 헤더
-  const city =
-    data?.city ?? data?.destination ?? data?.title ?? data?.meta?.city ?? "";
-  const country =
-    data?.country ?? data?.nation ?? data?.meta?.country ?? "";
+  const city = data?.city ?? data?.destination ?? data?.title ?? data?.meta?.city ?? "";
+  const country = data?.country ?? data?.nation ?? data?.meta?.country ?? "";
   const head = [city, country].filter(Boolean).join(", ");
-
-  // 이유/요약
-  const reason =
-    data?.reason ??
-    data?.explain ??
-    data?.summary ??
-    data?.desc ??
-    data?.why ??
-    "";
-
-  // 일정
+  const reason = data?.reason ?? data?.explain ?? data?.summary ?? data?.desc ?? data?.why ?? "";
   const schedule = extractSchedule(data);
-
   const lines: string[] = [];
   if (head) lines.push(head);
   if (reason) lines.push(String(reason));
-
   if (Object.keys(schedule).length) {
     Object.entries(schedule).forEach(([key, acts]) => {
       lines.push(`\n[${dayLabelKR(key)}]`);
@@ -263,56 +275,33 @@ function buildItineraryText(input: any) {
       });
     });
   }
-
-  // 헤더/이유/일정 아무것도 없으면 마지막 수단: 도시만이라도
   if (lines.length === 0 && (city || country)) lines.push([city, country].filter(Boolean).join(", "));
   return lines.join("\n").trim();
 }
-
-/** 복사 함수: 빈 문자열 방지 + fallback */
 async function copyHistoryItinerary(data: any) {
   const text = buildItineraryText(data);
-  // 디버그 로그
-  console.log("[COPY DEBUG] built text:", text, "\nfrom data:", data);
-
   if (!text) {
     alert("복사할 일정이 없습니다. 아직 일정 데이터가 로드되지 않았을 수 있습니다.");
     return;
   }
-
-  // 우선 Clipboard API
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text);
       alert("일정이 복사되었습니다. 메모장/카톡 등에 붙여넣기 하세요!");
       return;
-    } catch (e) {
-      console.warn("navigator.clipboard 실패, fallback 시도:", e);
-    }
+    } catch {}
   }
-
-  // fallback (HTTP/권한 문제 대비)
   try {
     const temp = document.createElement("textarea");
-    temp.value = text;
-    temp.style.position = "fixed";
-    temp.style.left = "-9999px";
-    document.body.appendChild(temp);
-    temp.focus();
-    temp.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(temp);
-    if (ok) {
-      alert("일정이 복사되었습니다. 메모장/카톡 등에 붙여넣기 하세요!");
-    } else {
-      throw new Error("execCommand 실패");
-    }
-  } catch (err) {
-    console.error("복사 실패:", err);
+    temp.value = text; temp.style.position = "fixed"; temp.style.left = "-9999px";
+    document.body.appendChild(temp); temp.focus(); temp.select();
+    const ok = document.execCommand("copy"); document.body.removeChild(temp);
+    if (ok) alert("일정이 복사되었습니다. 메모장/카톡 등에 붙여넣기 하세요!");
+    else throw new Error("execCommand 실패");
+  } catch {
     alert("복사에 실패했습니다. 브라우저 권한을 확인해주세요.");
   }
 }
-
 
 /* ======================= me 보정 ======================= */
 async function ensureUser() {
@@ -392,26 +381,6 @@ export default function HistoryList() {
         if (recIdParam != null && Number.isFinite(recIdParam)) {
           const found = arr.findIndex((r) => r?.recommendation_id === recIdParam);
           if (found >= 0) startIdx = found;
-          else {
-            for (let i = 0; i < arr.length; i++) {
-              if (abort) return;
-              const row = arr[i];
-              try {
-                const dRes = await fetch(`${API_BASE}/api/v1/survey/detail/${row.survey_id}`, {
-                  headers: buildHeaders(token || undefined), credentials: "include",
-                });
-                if (!dRes.ok) continue;
-                const dJson: any = await dRes.json();
-                const recos: any[] = (dJson?.recommendation ?? dJson?.result ?? dJson?.data ?? []) as any[];
-                if (!Array.isArray(recos)) continue;
-                const hit = recos.some((r) => {
-                  const id = r?.id ?? r?.rec_id ?? r?.recommendation_id ?? r?.result_id ?? null;
-                  return id === recIdParam;
-                });
-                if (hit) { startIdx = i; break; }
-              } catch {}
-            }
-          }
         } else if (idxParam != null && Number.isFinite(idxParam) && idxParam >= 0 && idxParam < arr.length) {
           startIdx = idxParam;
         }
@@ -521,7 +490,6 @@ export default function HistoryList() {
 
   return (
     <div className="history-scope">
-      {/* 북마크는 숨기고, 하트(위시)는 노출 */}
       <style>{`
         .history-scope .lucide-bookmark { display: none !important; }
         .history-scope button:has(.lucide-bookmark) { display: none !important; }
@@ -538,16 +506,13 @@ export default function HistoryList() {
           detail={detail}
           onPrev={() => setIndex((v) => Math.max(v - 1, 0))}
           onNext={() => setIndex((v) => Math.min(v + 1, Math.max(total - 1, 0)))}
-          /* 추천 본문: inline 하트로 카드 단위 위시 */
           RecommendationSlot={({ data }) => (
             <>
               <ResultData
                 data={data}
-                hideInlineActions={false}   // 하트 보이기
-                wishMode="card"             // ✅ 카드 단위 위시
+                hideInlineActions={false}
+                wishMode="card"
               />
-
-              {/* ✅ 일정 복사 버튼 */}
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"

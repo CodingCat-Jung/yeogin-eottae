@@ -198,15 +198,83 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number) {
     Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(la1) * Math.cos(la2);
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
 }
+/** 호텔 이름 정규화(한/영, 공백/기호/대소문자) */
+function normalizeHotelName(name?: string) {
+  return (name || "")
+    .toLowerCase()
+    .replace(/[()［］\[\]{}]/g, " ")
+    .replace(/hotel|hostel|inn|resort|guest\s*house|bnb|게스트하우스|호스텔|호텔|리조트/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 호텔 중복 제거: (1) 이름 유사 + (2) 150m 이내 좌표 → 하나만 유지 */
+function dedupeHotels<T extends { name_ko?: string; name_original?: string; lat?: number; lng?: number }>(
+  arr: T[],
+  opts: { byMeters?: number } = {}
+): T[] {
+  if (!Array.isArray(arr) || arr.length <= 1) return arr || [];
+  const MAX_M = opts.byMeters ?? 150;
+
+  const out: T[] = [];
+  const taken = new Set<number>();
+
+  for (let i = 0; i < arr.length; i++) {
+    if (taken.has(i)) continue;
+
+    const a = arr[i];
+    const aName = normalizeHotelName(a.name_ko || a.name_original || "");
+    const aHasCoord = typeof a.lat === "number" && typeof a.lng === "number";
+
+    // 후보군 중 ‘같은 호텔 같은 곳’으로 보이는 것들 수집
+    let bestIdx = i;
+    for (let j = i + 1; j < arr.length; j++) {
+      if (taken.has(j)) continue;
+
+      const b = arr[j];
+      const bName = normalizeHotelName(b.name_ko || b.name_original || "");
+
+      // 이름이 거의 동일해야만 중복 판단
+      const sameName = aName && bName && (aName === bName || aName.includes(bName) || bName.includes(aName));
+      if (!sameName) continue;
+
+      // 좌표가 둘 다 있으면 거리로 검증
+      const bothHave = aHasCoord && typeof b.lat === "number" && typeof b.lng === "number";
+      if (bothHave) {
+        const d = haversineKm(Number(a.lat), Number(a.lng), Number(b.lat), Number(b.lng)) * 1000;
+        if (d > MAX_M) continue; // 150m 초과면 다른 지점으로 간주
+      }
+
+      // 대표 선정 규칙: 좌표 있는 쪽 > name_ko 있는 쪽 > 기존
+      const best = arr[bestIdx];
+      const bestHasCoord = typeof (best as any).lat === "number" && typeof (best as any).lng === "number";
+      const bHasKo = !!b.name_ko;
+
+      if (!bestHasCoord && (typeof b.lat === "number" && typeof b.lng === "number")) {
+        bestIdx = j;
+      } else if (!best.name_ko && bHasKo) {
+        bestIdx = j;
+      }
+      taken.add(j);
+    }
+
+    taken.add(bestIdx);
+    out.push(arr[bestIdx]);
+  }
+
+  return out;
+}
 
 
 // Small utils 아래 아무 곳
 const placeLabel = (p: any) =>
+  (p.display_name && String(p.display_name).trim()) ||
   (p.name_ko && String(p.name_ko).trim()) ||
-  (p.name_en && String(p.name_en).trim()) ||   // ← 영어 우선 추가
+  (p.name_en && String(p.name_en).trim()) ||
   (p.name && String(p.name).trim()) ||
   (p.name_original && String(p.name_original).trim()) ||
-  String(p.id || "");
+  "Unknown POI";
+
 
 /** 간단 문자열 정규화 */
 function norm(s: string) {
@@ -246,6 +314,111 @@ function dedupePlaces<T extends { lat: number; lng: number }>(arr: T[]): T[] {
   return out;
 }
 
+/** ====== 공항/숙소 판별 & 강제 재배치 유틸 ====== */
+function looksAirportName(name?: string) {
+  if (!name) return false;
+  const s = String(name).toLowerCase();
+
+  // 다양한 표기: 공항/에어포트/airport/intl./international/유럽어…
+  if (
+    /(airport|air\s*port|intl\.?|international|공항|에어포트|aéroport|aeroport|aeropuerto|aeroporto|aerodrom)/i.test(s)
+  ) {
+    return true;
+  }
+
+  // 이름에 IATA 코드 패턴 (예: (DEN), (YUL))
+  if (/[（(]\s*[A-Z]{3}\s*[)）]/.test(String(name))) return true;
+
+  return false;
+}
+
+function isAirportPoi(p: any) {
+  const cat = String(p?.category || "").toLowerCase();
+  const name = (p?.name_ko || p?.name || p?.name_original || "") as string;
+  // category가 애매(기타)여도 이름으로 확정
+  return cat === "airport" || looksAirportName(name);
+}
+
+function isLodgingPoi(p: any) {
+  const cat = String(p?.category || "").toLowerCase();
+  const name = (p?.name_ko || p?.name || p?.name_original || "") as string;
+  return (
+    /lodging|accommodation|hotel|hostel|guest\s*house|inn|resort/i.test(cat) ||
+    /(호텔|호스텔|게스트하우스|료칸|여관)/.test(name) ||
+    /(hotel|hostel|guest\s*house|inn|resort|ryokan|bnb)/i.test(name)
+  );
+}
+
+/** 대표 숙소 하나 뽑기: 1) lodging.hotels[0] → 2) allPlaces 중 숙소성 → 3) null */
+function pickRepresentativeLodgingHard(rec: Recommendation) {
+  const h = rec.lodging?.hotels?.[0];
+  if (h && !isAirportPoi(h)) {
+    const label = (h.name_ko || h.name_original || "").trim();
+    if (label) return { label, lat: h.lat, lng: h.lng };
+  }
+  const fromPlaces = (rec.allPlaces || []).find((p) => isLodgingPoi(p) && !isAirportPoi(p));
+  if (fromPlaces) {
+    const label =
+      (fromPlaces.name_ko || fromPlaces.name || fromPlaces.name_original || "").trim();
+    if (label) return { label, lat: fromPlaces.lat, lng: fromPlaces.lng };
+  }
+  return null;
+}
+
+/**
+ * allPlaces를 강제로 정리:
+ *   [공항(dep?)] → [대표 숙소(1개)] → [기타(숙소/공항 제외)] → [공항(arr?)]
+ *   + 숙소 중복 제거(대표 1개만 유지)
+ */
+function enforceLodgingSecondFrontend(rec: Recommendation) {
+  const aps = [...(rec.allPlaces || [])];
+
+  // dep/arr 식별(백엔드가 id를 안줄 수도 있어서 보완)
+  const airports = aps.filter((p) => isAirportPoi(p));
+  const dep = airports.find((p) => (p.id === "airport_dep") ) || airports[0];
+  const arr = airports.find((p) => (p.id === "airport_arr") ) || (airports.length > 1 ? airports[1] : undefined);
+
+  const rep = pickRepresentativeLodgingHard(rec); // 대표 숙소(라벨/좌표)
+
+  // 기타: 공항/숙소성 제거
+  const others = aps.filter((p) => !isAirportPoi(p) && !isLodgingPoi(p));
+
+  const newAps: any[] = [];
+  if (dep) newAps.push(dep);
+  if (rep) {
+    newAps.push({
+      id: "lodging_main",
+      name_ko: rep.label,
+      name_original: rep.label,
+      category: "lodging",
+      role: "lodging_representative",
+      lat: rep.lat,
+      lng: rep.lng,
+    });
+  }
+  newAps.push(...others);
+  if (arr) newAps.push(arr);
+
+  // 좌표/이름 기준 중복 정리
+  rec.allPlaces = dedupePlaces(newAps);
+
+  // pickLodging 이 없을 때를 대비해서 lodging.hotels가 비어있으면 대표를 1개 꽂아줌
+  if (rep && (!rec.lodging || !(rec.lodging.hotels && rec.lodging.hotels.length))) {
+    rec.lodging = {
+      ...(rec.lodging || {}),
+      hotels: [
+        {
+          name_original: rep.label,
+          name_ko: rep.label,
+          lat: rep.lat,
+          lng: rep.lng,
+        },
+      ],
+    };
+  }
+
+  return rec;
+}
 
 
 const CSRF_COOKIE_CANDIDATES = ["csrf_access_token", "csrftoken", "csrf_token", "XSRF-TOKEN"];
@@ -591,30 +764,52 @@ type LodgingPick =
   | { kind: "area"; label: string };
 
 /** 추천 응답에서 '대표 숙소(호텔/지역)' 추출 */
+// ✅ REPLACE 기존 pickLodging 전체를 아래 코드로 교체
 function pickLodging(rec: Recommendation): LodgingPick | null {
-  // 1) 서버가 준 호텔 카드가 있으면 최우선
-  const h = rec.lodging?.hotels?.[0];
-  if (h) {
-    const name = h.name_ko || h.name_original || "";
-    if (name.trim()) return { kind: "hotel", label: name.trim(), lat: h.lat, lng: h.lng };
+  // mode 힌트 우선
+  const mode: "hotels" | "area" | undefined = (rec.lodging as any)?.mode;
+
+  // area 지시가 있으면 area 우선
+  if (mode === "area") {
+    const label =
+      rec.lodging?.areas?.[0]?.name_ko ||
+      rec.lodging?.areas?.[0]?.name_original ||
+      rec.lodging_area ||
+      "";
+    const clean = cleanAreaHint(label || "");
+    if (clean && !looksAirportName(clean)) return { kind: "area", label: clean };
   }
 
-  // 2) allPlaces 안에서 호텔로 보이는 포인트를 찾기
-  const hotelLike = (rec.allPlaces || []).find(p =>
-    looksLikeHotelName(p.name_ko || p.name || p.name_original || "") ||
-    /hotel|hostel|inn|resort/i.test(String(p.category || ""))
+  // 호텔 우선(있으면)
+  const hotels = rec.lodging?.hotels ?? [];
+  if (Array.isArray(hotels) && hotels.length > 0) {
+    const h0 = hotels[0];
+    const label = (h0?.name_ko || h0?.name_original || "").trim();
+    if (label && !looksAirportName(label)) {
+      return { kind: "hotel", label, lat: h0?.lat, lng: h0?.lng };
+    }
+  }
+
+  // POI에서 호텔처럼 보이는 것 (공항 제외)
+  const poiHotel = (rec.allPlaces || []).find(
+    (p) => isLodgingPoi(p) && !isAirportPoi(p)
   );
-  if (hotelLike) {
-    const label = (hotelLike.name_ko || hotelLike.name || hotelLike.name_original || "").trim();
-    if (label) return { kind: "hotel", label, lat: hotelLike.lat, lng: hotelLike.lng };
+  if (poiHotel) {
+    const label =
+      (poiHotel.name_ko || poiHotel.name || poiHotel.name_original || "").trim();
+    if (label && !looksAirportName(label)) {
+      return { kind: "hotel", label, lat: poiHotel.lat, lng: poiHotel.lng };
+    }
   }
 
-  // 3) 마지막 폴백: 일정 텍스트에서 '지역'만 정제
+  // 스케줄 텍스트에서 지역 추출(공항 같은 단어면 버림)
   const area = lodgingHintFromSchedule(rec);
-  if (area) return { kind: "area", label: area };
+  if (area && !looksAirportName(area)) return { kind: "area", label: area };
 
   return null;
 }
+
+
 
 
 /** 일정/문구에서 숙소 '지역'만 안전하게 추출 */
@@ -858,13 +1053,19 @@ function HotelCards({
     agoda_query?: string;
   }> | undefined;
 }) {
-  if (!hotels || hotels.length === 0) return null;
+  // ✅ 안전망: 프론트에서 한 번 더 호텔 중복 제거(이름 유사 + 150m 이내)
+  const list = useMemo(
+    () => dedupeHotels(hotels || [], { byMeters: 150 }),
+    [hotels]
+  );
+
+  if (!list || list.length === 0) return null;
 
   return (
     <div className="mt-4 space-y-3">
       <h4 className="text-sm font-bold text-violet-700">추천 호텔</h4>
       <ul className="grid gap-3 md:grid-cols-2">
-        {hotels.map((h, i) => (
+        {list.map((h, i) => (
           <li key={i} className="rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
             <div className="flex items-start gap-3">
               <div className="text-violet-700 mt-0.5">
@@ -885,17 +1086,25 @@ function HotelCards({
                     onClick={() => {
                       const name = h.name_ko || h.name_original || "";
                       openBookingSearchUnified(city, name, "hotel"); // Booking
-                      openAgodaSearchUnified(city, name, "hotel");   // (같이 띄우고 싶으면 유지)
+                      openAgodaSearchUnified(city, name, "hotel");   // Agoda
                     }}
                     className="text-xs px-2.5 py-1.5 rounded-lg border text-violet-700 border-violet-200 hover:bg-violet-50"
                   >
                     Booking으로 예약
                   </button>
                   <button
-                    onClick={() => openGoogleMapHotel(city, h.name_ko || h.name_original || "", h.lat, h.lng, "hotel")}
+                    onClick={() =>
+                      openGoogleMapHotel(
+                        city,
+                        h.name_ko || h.name_original || "",
+                        h.lat,
+                        h.lng,
+                        "hotel"
+                      )
+                    }
                     className="text-xs px-2.5 py-1.5 rounded-lg border text-gray-700 border-gray-200 hover:bg-gray-50 inline-flex items-center gap-1"
                   >
-                    <Globe size={12}/> 지도
+                    <Globe size={12} /> 지도
                   </button>
                 </div>
               </div>
@@ -906,6 +1115,7 @@ function HotelCards({
     </div>
   );
 }
+
 
 
 /* =========================
@@ -1128,6 +1338,7 @@ function MapView({
         });
 
         new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(map);
+
       });
       // △ 마커 끝
 
@@ -1567,19 +1778,39 @@ export default function Result() {
           if (firstArrayKey) list = (parsed as any)[firstArrayKey];
         }
 
-        const normalized: Recommendation[] = (list || []).map((it) => ({
-          city: it.city ?? it.destination ?? "",
-          country: it.country ?? it.nation ?? "",
-          reason: it.reason ?? it.explain ?? "",
-          lodging_area: it.lodging_area ?? "",
-          lodging: it.lodging ?? undefined,   // ✅ 통째로 전달 (areas/hotels 포함)
-          schedule: normalizeSchedule(it.schedule ?? it.plan ?? []),
-          allPlaces: it.allPlaces ?? it.places ?? undefined,
-          days: it.days ?? undefined,
-        }));
+        // ⬇️ Result 컴포넌트의 normalized 만들던 부분 교체/보강
+        const normalized: Recommendation[] = (list || []).map((it) => {
+          const hotelsFromVarious =
+            (it?.lodging?.hotels && Array.isArray(it.lodging.hotels) ? it.lodging.hotels : null) ??
+            (Array.isArray(it?.hotels) ? it.hotels : null) ??
+            (Array.isArray(it?.accommodations) ? it.accommodations : null);
 
+          // 🔽 여기에서 먼저 중복 제거
+          const hotelsDeduped = hotelsFromVarious ? dedupeHotels(hotelsFromVarious, { byMeters: 150 }) : undefined;
 
-        const deduped = dedupeRecs(normalized);
+          const lodgingArea =
+            it.lodging_area ??
+            it.lodgingArea ??
+            it?.lodging?.area ??
+            it?.lodging?.areas?.[0]?.name_ko ??
+            it?.lodging?.areas?.[0]?.name_original ??
+            "";
+
+          return {
+            city: it.city ?? it.destination ?? "",
+            country: it.country ?? it.nation ?? "",
+            reason: it.reason ?? it.explain ?? "",
+            lodging_area: lodgingArea || "",
+            lodging: hotelsDeduped
+              ? { hotels: hotelsDeduped, areas: it?.lodging?.areas ?? [] }
+              : (it?.lodging ?? undefined),
+            schedule: normalizeSchedule(it.schedule ?? it.plan ?? []),
+            allPlaces: it.allPlaces ?? it.places ?? undefined,
+            days: it.days ?? undefined,
+          };
+        });
+        const normalizedFixed = normalized.map(enforceLodgingSecondFrontend);
+        const deduped = dedupeRecs(normalizedFixed);
 
         console.timeEnd("recommend");
         console.log("[PARSED] items =", deduped.length);
@@ -1659,9 +1890,25 @@ export default function Result() {
                     <p className="text-gray-700 mt-1 leading-relaxed">{rec.reason}</p>
                     <MetaChips duration={durationKR} budget={budgetKR} transport={transport} month={monthKR} />
                     {/* 🏨 숙소 추천 블록 */}
-                    <LodgingSection city={rec.city} pick={lodgingPick} />
-                    {/* ✅ 추천 호텔 카드 */}
-                    <HotelCards city={rec.city} hotels={rec.lodging?.hotels} />
+                    {(() => {
+                      // 백엔드가 mode 주면 우선 사용, 없으면 호텔 2개 이상 여부로 추론
+                      const hotelsLen = rec.lodging?.hotels?.length ?? 0;
+                      const mode: "hotels" | "area" =
+                        (rec.lodging as any)?.mode ?? (hotelsLen >= 2 ? "hotels" : "area");
+
+                      if (mode === "hotels" && hotelsLen > 0) {
+                        // 호텔 카드(2~3개) + (선택) 대표 한 줄 CTA
+                        return (
+                          <>
+                            <HotelCards city={rec.city} hotels={rec.lodging?.hotels} />
+                            <LodgingSection city={rec.city} pick={lodgingPick} />
+                          </>
+                        );
+                      }
+                      // 권역(시내 중심 등) 한 줄 폴백
+                      return <LodgingSection city={rec.city} pick={lodgingPick} />;
+                    })()}
+
                   </div>
 
                   <div className="shrink-0 flex flex-col gap-2">
@@ -1673,20 +1920,6 @@ export default function Result() {
                     >
                       <PlaneTakeoff size={16} />
                       항공권 검색
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (lodgingPick?.kind === "hotel") {
-                          openBookingSearchUnified(rec.city, lodgingPick.label, "hotel");
-                        } else if (lodgingPick?.kind === "area") {
-                          openBookingSearchUnified(rec.city, lodgingPick.label, "area");
-                        } else {
-                          openBookingSearchUnified(rec.city, "", "area"); // 폴백: 도시만
-                        }
-                      }}
-                      className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
-                    >
-                      숙소 예약하기
                     </button>
 
                     <button
