@@ -135,3 +135,5 @@ def search_text_top1(
             pass
 
     return data
+
+places_text_search = search_text_top1

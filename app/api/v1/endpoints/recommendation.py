@@ -1,5 +1,7 @@
 # app/api/v1/endpoints/recommendation.py
+
 from __future__ import annotations
+
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -38,7 +40,6 @@ def pick_col(model, names: List[str]):
 
 def _model_to_dict(r: Recommendation):
     """Recommendation 모델을 dict로 직렬화"""
-    # ← FK 값 추출 (survey_id, surveyId, sid 중 있는 걸 사용)
     survey_fk_name = next((n for n in RECO_SURVEY_FK_CANDIDATES if hasattr(r, n)), None)
     survey_fk_value = getattr(r, survey_fk_name, None) if survey_fk_name else None
 
@@ -94,7 +95,6 @@ def list_my_recommendations(
         q = q.filter(survey_nickname == user["nickname"])
 
     recs = q.order_by(desc(created_col)).all()
-
     return [_model_to_dict(r) for r in recs]
 
 
@@ -203,7 +203,7 @@ def create_recommendation_from_survey(
     payload: SurveyCreate,
     request: Request,
     response: Response,
-    user=Depends(require_auth),          # 공개 엔드포인트로 열려야 하면 Depends 제거
+    user=Depends(require_auth),  # 공개 엔드포인트로 열려야 하면 Depends 제거
     db: Session = Depends(get_db),
 ):
     """
@@ -213,7 +213,6 @@ def create_recommendation_from_survey(
 
     # ✅ 쿠키 인증 기반이면 CSRF 더블서브밋 체크
     verify_csrf(request)
-    # (선택) 쿠키에 CSRF가 없다면 발급 – 일관성 차원에서 유지
     issue_csrf_cookie_if_needed(request, response)
 
     # ✅ preferences를 평탄화해서 rag_service에 전달
@@ -221,33 +220,12 @@ def create_recommendation_from_survey(
         "nickname": payload.nickname,
         **payload.preferences.model_dump(exclude_none=True),
     }
-    # 예시:
-    # {
-    #   "nickname": "...",
-    #   "companion": "...",
-    #   "style": [...],
-    #   "duration": "1박2일",
-    #   "budget": "...",
-    #   "climate": "...",
-    #   "continent": "...",
-    #   "density": "...",
-    #   "driving": "public",
-    #   "depart_window": "morning",
-    #   "return_window": "evening",
-    #   "travel_month": 11,          # 프론트에서 계산해 보낸 정수(1~12) 또는 None
-    #   "season": "FALL",            # 선택
-    # }
 
     try:
         out = rag_service.get_rag_recommendation(prefs)
-        # rag_service는 {"recommendation": [...], "prompt": "..."} 형태를 반환한다고 가정.
-        # 프론트에서 배열/ data/ results 어떤 키든 처리하지만, 일관성 위해 data 키로 감쌈.
         return {
             "data": out.get("recommendation", []),
-            "debug": {
-                "prompt": out.get("prompt"),
-            },
+            "debug": {"prompt": out.get("prompt")},
         }
     except Exception as e:
-        # 필요한 경우 logger.exception(...)으로 상세 로깅
         raise HTTPException(status_code=500, detail=str(e))
