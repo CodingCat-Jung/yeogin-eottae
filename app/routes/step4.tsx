@@ -81,6 +81,11 @@ export default function Step4() {
   const [day, setDay] = useState<number>(initDay);
   const [budgetDisp, setBudgetDisp] = useState<string>(formatKRW(initBudget));
 
+  // 🧩 옵션: 총 예산 모드(항공+숙박 포함) 토글 — 기본값은 'ground'(현지체류 예산)
+  const [budgetMode, setBudgetMode] = useState<'ground' | 'total'>(
+    (localStorage.getItem('budget_mode') as 'ground' | 'total') || 'ground'
+  );
+
   const nightRef = useRef<HTMLInputElement>(null);
   const dayRef = useRef<HTMLInputElement>(null);
 
@@ -104,6 +109,9 @@ export default function Step4() {
     // ✅ store setter 사용 (localStorage 직접 접근 금지)
     setSchedule(`${night}night ${day}days`);
     setBudget(`${budgetNumber}KRW`);
+
+    // ⬇️ 토글 플래그는 임시로 localStorage 에만 저장 (기존 파이프라인 영향 없음)
+    localStorage.setItem('budget_mode', budgetMode);
 
     navigate("/step5");
   };
@@ -191,6 +199,16 @@ export default function Step4() {
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#6C3DF4]/50 focus:border-[#6C3DF4]"
             />
           </div>
+
+          {/* 안내문 — 혼선 방지 (기본은 현지 체류 예산 기준) */}
+          <p className="mt-2 text-sm text-gray-600">
+            {budgetMode === 'ground' ? (
+              <>※ 이 예산은 <b>항공권·숙박비를 제외한 ‘현지 체류 예산’</b> 기준입니다 (식비·현지교통·입장료·체험 등).</>
+            ) : (
+              <>※ 이 예산은 <b>총 예산(항공+숙박 포함)</b> 기준입니다. 다음 단계에서 내부적으로 분리해 사용합니다.</>
+            )}
+          </p>
+
           <p className="text-sm text-gray-500 mt-2">
             여유로운 여행을 위한 예상 금액을 입력해보세요. <span className="text-gray-400">(천단위 구분 자동)</span>
           </p>

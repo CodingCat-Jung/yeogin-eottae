@@ -108,7 +108,7 @@ export default function StepTime() {
         </section>
 
         <div className="flex justify-between pt-2">
-          <button onClick={() => nav(-1)} className="flex items-center gap-2 text-[#6C3DF4]">
+          <button onClick={() => nav('/step5')} className="flex items-center gap-2 text-[#6C3DF4]">
             <ArrowLeft size={16} /> 뒤로가기
           </button>
           <button

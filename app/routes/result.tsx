@@ -17,6 +17,9 @@ import {
   PlaneTakeoff,
   BedDouble,   // ← 추가
   Globe,       // ← 추가
+  Star,
+  RefreshCw,
+  Shuffle,
 } from "lucide-react";
 import { getTravelMonthInt, monthToSeason } from "@/store/travelStore";
 
@@ -27,6 +30,17 @@ import "mapbox-gl/dist/mapbox-gl.css";
 /* =========================
  * Types
  * ========================= */
+type BudgetMeta = {
+  ok?: boolean;
+  minRequiredKRW?: number;
+  recommendedKRW?: number;    // 권장 예산
+  estimatedTotalKRW?: number; // 예상 예산
+  perDayKRW?: number;
+  breakdown?: Record<string, number>;
+  notes?: string[];
+  expectedKRW?: number;
+  maxPlausibleKRW?: number;
+};
 type Activity = { time: string; activity: string };
 type CitySchedule = Record<string, Activity[]>;
 
@@ -35,6 +49,11 @@ type Recommendation = {
   country: string;
   reason: string;
   lodging_area?: string;
+  country_code?: string; // ✅ ISO2(선택)
+
+  meta?: {
+    budget?: BudgetMeta;
+  };
 
   lodging?: {
     areas?: Array<{
@@ -69,6 +88,7 @@ type Recommendation = {
   }>;
   days?: Array<{ dateOffset?: number; stops?: Array<{ lat: number; lng: number }> }>;
 };
+
 
 
 
@@ -161,6 +181,258 @@ function categoryKo(raw: unknown): string {
 
   return "기타";
 }
+// 영어 키 → 한글 라벨 매핑
+const BREAKDOWN_KO: Record<string, string> = {
+  meals: "식비", food: "식비", dining: "식비",
+  transport: "교통비", transit: "교통비",
+  tickets: "입장료", attractions: "입장료", sightseeing: "입장료",
+  lodging: "숙박", hotel: "숙박", accommodation: "숙박",
+  activities: "체험/액티비티", experience: "체험/액티비티",
+  shopping: "쇼핑",
+  drinks: "음료/주류", beverage: "음료/주류",
+  etc: "기타", misc: "기타", other: "기타",
+};
+function toKoLabel(k: string) {
+  const key = k.toLowerCase().trim();
+  return BREAKDOWN_KO[key] || k; // 모르는 키는 원문 유지
+}
+function normalizeBreakdown(b?: Record<string, number>) {
+  if (!b) return [] as Array<{ key: string; label: string; value: number }>;
+  const arr = Object.entries(b).map(([k, v]) => ({
+    key: k, label: toKoLabel(k), value: Number(v || 0),
+  }));
+  const order = ["숙박", "식비", "교통비", "입장료", "체험/액티비티", "쇼핑", "음료/주류", "기타"];
+  arr.sort((a, b) => (order.indexOf(a.label) - order.indexOf(b.label)));
+  return arr;
+}
+
+// result.tsx 상단 아무 유틸 구역에
+function isBudgetInsufficient(meta?: Recommendation["meta"]): boolean {
+  const ok = meta?.budget?.ok as any;
+  // false, 0, "0", "false", null(명시적 실패로 간주하고 싶으면 포함)까지 허용
+  if (ok === false) return true;
+  if (ok === 0) return true;
+  if (typeof ok === "string" && ok.toLowerCase() === "false") return true;
+  // 필요 시: if (ok == null) return true;  // <- null/undefined도 “부족”으로 간주하고 싶다면
+  return false;
+}
+
+function BudgetAlert({ meta }: { meta?: { budget?: BudgetMeta } }) {
+  if (!isBudgetInsufficient(meta)) return null;
+  const b = meta?.budget;
+  const minKRW =
+    typeof b?.minRequiredKRW === "number"
+      ? b.minRequiredKRW
+      : undefined;
+  const line = b?.notes?.[0] || "예산이 부족합니다. 최소 비용 기준으로 간소한 일정을 제시해요.";
+  return (
+    <div className="max-w-3xl w-full mx-auto border border-amber-200 bg-amber-50 text-amber-800 rounded-xl p-3 text-sm">
+      <div className="flex items-start gap-2">
+        <TriangleAlert className="mt-0.5" size={18} />
+        <div className="flex-1">
+          <div className="font-semibold">예산 경고</div>
+          <div className="mt-0.5">
+            {line}
+            {typeof minKRW === "number" ? <> 최소 필요 예산은 <b>₩{minKRW.toLocaleString()}</b> 정도로 보여요.</> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 간단 KRW 포맷터
+function krw(n?: number) {
+  return typeof n === "number" ? `₩${n.toLocaleString()}` : undefined;
+}
+function parseKRWtoNumber(s?: string | null) {
+  if (!s) return 0;
+  const n = String(s).replace(/[^\d]/g, "");
+  return n ? Number(n) : 0;
+}
+
+/** 💸 예산 요약줄: 예상/권장/최소 */
+function BudgetSummary({
+                         budgetMeta,
+                         userBudgetKRWRaw,
+                       }: {
+  budgetMeta?: {
+    ok?: boolean;
+    minRequiredKRW?: number;
+    estimatedTotalKRW?: number;
+    recommendedKRW?: number;
+    perDayKRW?: number;
+    breakdown?: Record<string, number>;
+  };
+  userBudgetKRWRaw: string;
+}) {
+  // ── 내부 헬퍼: "₩1,000,000" → 1000000
+  const parseKRWtoNumber = (s?: string | null) => {
+    if (!s) return 0;
+    const n = String(s).replace(/[^\d]/g, "");
+    return n ? Number(n) : 0;
+  };
+
+  // ── 브레이크다운 라벨 한글화 & 정렬
+  const BREAKDOWN_KO: Record<string, string> = {
+    meals: "식비",
+    food: "식비",
+    dining: "식비",
+    transport: "교통비",
+    transit: "교통비",
+    tickets: "입장료",
+    attractions: "입장료",
+    sightseeing: "입장료",
+    lodging: "숙박",
+    hotel: "숙박",
+    accommodation: "숙박",
+    activities: "체험/액티비티",
+    experience: "체험/액티비티",
+    shopping: "쇼핑",
+    drinks: "음료/주류",
+    beverage: "음료/주류",
+    etc: "기타",
+    misc: "기타",
+    other: "기타",
+  };
+  const toKoLabel = (k: string) => BREAKDOWN_KO[k.toLowerCase().trim()] || k;
+  const normalizeBreakdown = (b?: Record<string, number>) => {
+    if (!b) return [] as Array<{ key: string; label: string; value: number }>;
+    const arr = Object.entries(b).map(([k, v]) => ({
+      key: k,
+      label: toKoLabel(k),
+      value: Number(v || 0),
+    }));
+    const order = ["숙박", "식비", "교통비", "입장료", "체험/액티비티", "쇼핑", "음료/주류", "기타"];
+    arr.sort((a, b) => {
+      const ia = order.indexOf(a.label);
+      const ib = order.indexOf(b.label);
+      if (ia === -1 && ib === -1) return a.label.localeCompare(b.label);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+    return arr;
+  };
+
+  if (!budgetMeta) return null;
+
+  const user = parseKRWtoNumber(userBudgetKRWRaw);
+  const min = budgetMeta.minRequiredKRW ?? 0;
+  const est =
+    budgetMeta.expectedKRW ??
+    budgetMeta.estimatedTotalKRW ??
+    budgetMeta.recommendedKRW ??
+    0;
+// 스케일 기준을 '상한 후보'까지 고려
+  const maxRange = budgetMeta.maxPlausibleKRW ?? Math.max(est, user);
+  const maxVal = Math.max(min, est, user, maxRange || 0, 1);
+  const pct = (v: number) => Math.min(100, Math.round((v / maxVal) * 100));
+
+  const ok = budgetMeta.ok !== false && (user >= min || (est > 0 ? user >= est : true));
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-3">
+      {/* 상단 배지 줄 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border
+            ${ok ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-800 border-amber-200"}`}
+        >
+          <span className={`w-2 h-2 rounded-full ${ok ? "bg-emerald-500" : "bg-amber-500"}`} />
+          {ok ? "예산 여유" : "예산 부족"}
+        </span>
+
+        {est > 0 && (
+          <span className="inline-flex items-center rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-3 py-1.5 text-xs">
+            예상 경비 <b className="ml-1">₩{est.toLocaleString()}</b>
+          </span>
+        )}
+
+        <span className="inline-flex items-center rounded-full bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 text-xs">
+          최소 <b className="ml-1">₩{min.toLocaleString()}</b>
+        </span>
+
+        {user > 0 && (
+          <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-700 border border-slate-200 px-3 py-1.5 text-xs">
+            내 예산 <b className="ml-1">₩{user.toLocaleString()}</b>
+          </span>
+        )}
+
+        {budgetMeta.breakdown && (
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="ml-1 text-xs px-2 py-1 rounded-md border border-violet-200 text-violet-700 hover:bg-violet-50"
+          >
+            상세 보기
+          </button>
+        )}
+      </div>
+
+      {/* 3줄 비교 바 (최소/예상/내 예산) */}
+      <div className="mt-3 rounded-xl border border-violet-100 bg-white p-3">
+        {[
+          { label: "최소", value: min, cls: "bg-amber-400/80" },
+          ...(est > 0 ? [{ label: "예상", value: est, cls: "bg-violet-500/80" }] : []),
+          ...(user > 0 ? [{ label: "내 예산", value: user, cls: "bg-emerald-500/80" }] : []),
+        ].map((row) => (
+          <div key={row.label} className="mb-2 last:mb-0">
+            <div className="flex items-center justify-between text-[11px] text-gray-600 mb-1">
+              <span>{row.label}</span>
+              <span>₩{row.value.toLocaleString()}</span>
+            </div>
+            <div className="h-2.5 w-full rounded-full bg-gray-100 overflow-hidden">
+              <div className={`h-full ${row.cls}`} style={{ width: `${pct(row.value)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 브레이크다운 팝오버 (한글 라벨) */}
+      {open && budgetMeta.breakdown && (
+        <div className="relative">
+          <div className="mt-2 w-full md:w-[360px] rounded-xl border border-violet-200 bg-white shadow-lg p-3 text-sm">
+            <div className="font-semibold text-violet-700 mb-1">예상 비용 상세</div>
+            <ul className="space-y-1">
+              {normalizeBreakdown(budgetMeta.breakdown).map((it) => (
+                <li key={it.key} className="flex items-center justify-between">
+                  <span className="text-gray-600">{it.label}</span>
+                  <span className="font-medium">₩{it.value.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 h-px bg-violet-100" />
+            {(() => {
+              const items = normalizeBreakdown(budgetMeta.breakdown);
+              const total = items.reduce((s, x) => s + x.value, 0);
+              return (
+                <div className="mt-2 flex items-center justify-between text-gray-700">
+                  <span>합계</span>
+                  <span className="font-bold">₩{total.toLocaleString()}</span>
+                </div>
+              );
+            })()}
+            {est > 0 && (() => {
+              const items = normalizeBreakdown(budgetMeta.breakdown);
+              const total = items.reduce((s, x) => s + x.value, 0);
+              return total && Math.abs(total - est) > 1000 ? (
+                <div className="mt-1 text-[11px] text-gray-500">
+                  * 합계가 ‘예상 경비’와 약간 다를 수 있어요(반올림/할인 등).
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 예상 경비는 숙박·항공비를 제외한 현지 체류비(식비·교통·입장료·기타) 기준입니다.
+                  </p>
+                </div>
+
+              ) : null;
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 /* =========================
@@ -287,9 +559,14 @@ function norm(s: string) {
 
 /** 스케줄(day별) 텍스트를 합친 배열을 만든다. (0=1일차, 1=2일차, ...) */
 function makeDayTexts(schedule: CitySchedule): string[] {
-  const dayKeys = Object.keys(schedule).sort((a, b) => a.localeCompare(b));
+  const dayKeys = Object.keys(schedule).sort((a, b) => {
+    const an = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+    const bn = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+    return an - bn || a.localeCompare(b);
+  });
   return dayKeys.map((k) => norm((schedule[k] || []).map(a => a.activity).join(" ")));
 }
+
 
 /** 포인트 이름이 day 텍스트에 등장하는지(느슨한 포함) */
 function isMentionedInDay(p: any, dayText: string): boolean {
@@ -486,12 +763,19 @@ function scheduleToText(rec: Recommendation) {
   const lines: string[] = [];
   lines.push(`${rec.city}, ${rec.country}`);
   lines.push(rec.reason);
-  Object.entries(rec.schedule).forEach(([day, acts]) => {
-    lines.push(`\n[${dayLabel(day)}]`);
-    acts.forEach((a) => lines.push(`${a.time} - ${a.activity}`));
-  });
+  Object.entries(rec.schedule)
+    .sort(([a], [b]) => {
+      const an = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+      const bn = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+      return an - bn || a.localeCompare(b);
+    })
+    .forEach(([day, acts]) => {
+      lines.push(`\n[${dayLabel(day)}]`);
+      acts.forEach((a) => lines.push(`${a.time} - ${a.activity}`));
+    });
   return lines.join("\n");
 }
+
 
 /** schedule 응답이 배열([{day, activities}]) 또는 객체일 때 모두 안전하게 CitySchedule로 정규화 */
 function normalizeSchedule(s: any): CitySchedule {
@@ -765,23 +1049,12 @@ type LodgingPick =
 
 /** 추천 응답에서 '대표 숙소(호텔/지역)' 추출 */
 // ✅ REPLACE 기존 pickLodging 전체를 아래 코드로 교체
+// ✅ pickLodging 교체(또는 상단 로직만 수정)
+// ✅ 호텔 우선 pickLodging
 function pickLodging(rec: Recommendation): LodgingPick | null {
-  // mode 힌트 우선
-  const mode: "hotels" | "area" | undefined = (rec.lodging as any)?.mode;
-
-  // area 지시가 있으면 area 우선
-  if (mode === "area") {
-    const label =
-      rec.lodging?.areas?.[0]?.name_ko ||
-      rec.lodging?.areas?.[0]?.name_original ||
-      rec.lodging_area ||
-      "";
-    const clean = cleanAreaHint(label || "");
-    if (clean && !looksAirportName(clean)) return { kind: "area", label: clean };
-  }
-
-  // 호텔 우선(있으면)
   const hotels = rec.lodging?.hotels ?? [];
+
+  // 1) 호텔이 하나라도 있으면 호텔 우선
   if (Array.isArray(hotels) && hotels.length > 0) {
     const h0 = hotels[0];
     const label = (h0?.name_ko || h0?.name_original || "").trim();
@@ -790,24 +1063,28 @@ function pickLodging(rec: Recommendation): LodgingPick | null {
     }
   }
 
-  // POI에서 호텔처럼 보이는 것 (공항 제외)
-  const poiHotel = (rec.allPlaces || []).find(
-    (p) => isLodgingPoi(p) && !isAirportPoi(p)
-  );
+  // 2) allPlaces에서 (공항 제외) 숙소성 POI 찾기
+  const poiHotel = (rec.allPlaces || []).find(p => isLodgingPoi(p) && !isAirportPoi(p));
   if (poiHotel) {
-    const label =
-      (poiHotel.name_ko || poiHotel.name || poiHotel.name_original || "").trim();
+    const label = (poiHotel.name_ko || poiHotel.name || poiHotel.name_original || "").trim();
     if (label && !looksAirportName(label)) {
       return { kind: "hotel", label, lat: poiHotel.lat, lng: poiHotel.lng };
     }
   }
 
-  // 스케줄 텍스트에서 지역 추출(공항 같은 단어면 버림)
-  const area = lodgingHintFromSchedule(rec);
-  if (area && !looksAirportName(area)) return { kind: "area", label: area };
+  // 3) 그래도 없으면 area
+  const area =
+    rec.lodging_area ||
+    rec.lodging?.areas?.[0]?.name_ko ||
+    rec.lodging?.areas?.[0]?.name_original ||
+    lodgingHintFromSchedule(rec);
+  const clean = area && cleanAreaHint(area);
+  if (clean && !looksAirportName(clean)) return { kind: "area", label: clean };
 
   return null;
 }
+
+
 
 
 
@@ -879,15 +1156,16 @@ function ResultHero({
 
   return (
     <motion.header
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{opacity: 0, y: -8}}
+      animate={{opacity: 1, y: 0}}
       className="relative isolate overflow-hidden text-center pt-6 pb-8"
     >
       <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-20 flex justify-center">
-        <div className="h-44 w-44 rounded-full bg-gradient-to-br from-violet-300/30 to-fuchsia-200/25 blur-3xl" />
+        <div className="h-44 w-44 rounded-full bg-gradient-to-br from-violet-300/30 to-fuchsia-200/25 blur-3xl"/>
       </div>
 
-      <div className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-3 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
+      <div
+        className="inline-flex items-center gap-1 rounded-full border border-violet-200/60 bg-white/70 px-3 py-1 text-[11px] font-medium text-violet-700 backdrop-blur">
         ✨ 여행 취향 기반 추천
       </div>
 
@@ -898,7 +1176,8 @@ function ResultHero({
       </h1>
 
       <p className="mx-auto mt-2 max-w-xl text-sm md:text-base text-gray-600">선택하신 정보를 바탕으로 어울리는 여행지를 골라봤어요</p>
-
+      <p className="mx-auto mt-2 max-w-xl text-sm md:text-base text-gray-600">추천 결과의 예상 대기 시간은 1~2분입니다!</p>
+      <p className="mx-auto mt-2 max-w-xl text-sm md:text-base text-gray-600">잠시만 기다려주세요!</p>
       <div className="mt-4 flex items-center justify-center gap-2">
         {month ? <Chip>{month} 여행</Chip> : null}
         <Chip>{duration}</Chip>
@@ -906,7 +1185,7 @@ function ResultHero({
         <Chip>{TransportText} 기준</Chip>
       </div>
 
-      <div className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-violet-400/50 via-fuchsia-400/50 to-violet-400/50" />
+      <div className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-violet-400/50 via-fuchsia-400/50 to-violet-400/50"/>
     </motion.header>
   );
 }
@@ -978,25 +1257,38 @@ function DaySection({
   );
 }
 /* 🏨 숙소 추천 블록 (호텔/지역 자동 구분) */
-function LodgingSection({ city, pick }: { city: string; pick: LodgingPick | null }) {
+// 기존 LodgingSection 시그니처 변경
+function LodgingSection({
+                          city,
+                          pick,
+                          variant = "full", // "full" | "compact"
+                        }: {
+  city: string;
+  pick: LodgingPick | null;
+  variant?: "full" | "compact";
+}) {
   if (!pick) return null;
   const isHotel = pick.kind === "hotel";
-  const title = isHotel ? "추천 호텔" : "숙소 추천 지역";
+  const title = variant === "full" ? (isHotel ? "추천 호텔" : "숙소 추천 지역") : "대표 추천";
   const sub = pick.label;
 
+  // compact는 테두리만 얇고, 텍스트도 한 줄로
+  const wrapCls =
+    variant === "full"
+      ? "mt-4 p-4 bg-violet-50/60 border border-violet-100 rounded-2xl"
+      : "mt-4 p-3 border border-violet-100 rounded-xl bg-white";
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mt-4 p-4 bg-violet-50/60 border border-violet-100 rounded-2xl"
-    >
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={wrapCls}>
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 mt-0.5 text-violet-700">
           <BedDouble size={20} />
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="text-sm font-bold text-violet-700">{title}</h4>
-          <p className="text-sm text-gray-700 mt-1 leading-snug">{sub}</p>
+          <p className={`text-sm text-gray-700 mt-1 ${variant === "compact" ? "truncate" : "leading-snug"}`}>
+            {sub}
+          </p>
           <div className="flex flex-wrap gap-2 mt-2">
             <button
               onClick={() =>
@@ -1024,9 +1316,9 @@ function LodgingSection({ city, pick }: { city: string; pick: LodgingPick | null
                   ? openGoogleMapHotel(city, sub, (pick as any).lat, (pick as any).lng, "hotel")
                   : openGoogleMapHotel(city, sub, undefined, undefined, "area")
               }
-              className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-700 transition flex items-center gap-1"
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1"
             >
-              <Globe size={12} /> 지도 보기
+              <Globe size={12} /> 지도
             </button>
           </div>
         </div>
@@ -1035,86 +1327,220 @@ function LodgingSection({ city, pick }: { city: string; pick: LodgingPick | null
   );
 }
 
+/** 호텔 설명을 ‘한 문장’으로 축약 + 길이 제한 */
+/** 호텔 추천 이유를 '자연스러운 한 문장'으로 1줄 요약 */
+type PriceTier = "저예산" | "중간" | "상위";
+type HotelItem = {
+  name_original: string;
+  name_ko?: string;
+  lat?: number;
+  lng?: number;
+  why?: string;
+  price_tier?: PriceTier;
+  booking_query?: string;
+  agoda_query?: string;
+};
 
-
-function HotelCards({
-                      city,
-                      hotels,
-                    }: {
+export function HotelCards({
+                             city,
+                             hotels,
+                           }: {
   city: string;
-  hotels?: Array<{
-    name_original: string;
-    name_ko?: string;
-    lat?: number;
-    lng?: number;
-    why?: string;
-    price_tier?: "저예산" | "중간" | "상위";
-    booking_query?: string;
-    agoda_query?: string;
-  }> | undefined;
+  hotels?: HotelItem[] | undefined;
 }) {
-  // ✅ 안전망: 프론트에서 한 번 더 호텔 중복 제거(이름 유사 + 150m 이내)
-  const list = useMemo(
-    () => dedupeHotels(hotels || [], { byMeters: 150 }),
-    [hotels]
-  );
-
+  const list = useMemo(() => dedupeHotels(hotels || [], { byMeters: 150 }), [hotels]);
   if (!list || list.length === 0) return null;
+
+  // 대표 카드 크기로 통일 (높이는 필요 시 조절)
+  const CARD_H = "h-[230px]";
+  const cardCls =
+    `w-full rounded-2xl border border-violet-200 bg-white p-4 shadow-sm ` +
+    `hover:shadow-md hover:-translate-y-0.5 transition duration-200 ` +
+    `flex flex-col ${CARD_H}`;
+
+  const summarizeWhy = (why?: string, maxChars = 42) => {
+    const s = (why || "").trim();
+    if (!s) return s;
+    const m = s.match(/[.!?]|…/);
+    const first = m ? s.slice(0, (m.index ?? 0) + 1).trim() : s;
+    return first.length <= maxChars ? first : s.slice(0, maxChars).trim() + "…";
+  };
+
+  function HotelWhy({ why }: { why?: string }) {
+    const [open, setOpen] = useState(false);
+    if (!why) return null;
+    const shortText = summarizeWhy(why, 42);
+    const shortened = shortText !== why;
+
+    return (
+      <div className="mt-1 text-sm text-gray-700">
+        <div className="flex items-start gap-2">
+          <span className={open ? "" : "line-clamp-2"}>{open ? why : shortText}</span>
+          {shortened && (
+            <button
+              onClick={() => setOpen(v => !v)}
+              className="ml-auto text-violet-600 text-xs hover:underline whitespace-nowrap"
+              aria-expanded={open}
+            >
+              {open ? "접기" : "전체 보기"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const [featured, ...rest] = list;
+
+  const getTierClass = (tier?: PriceTier) => {
+    switch (tier) {
+      case "저예산": return "bg-emerald-50 text-emerald-700 border-emerald-100";
+      case "상위":   return "bg-amber-50 text-amber-700 border-amber-100";
+      default:       return "bg-violet-50 text-violet-700 border-violet-100";
+    }
+  };
+
+  const makeKey = (h: HotelItem, i: number) =>
+    `${h.name_ko || h.name_original || "hotel"}-${h.lat ?? "x"}-${h.lng ?? "x"}-${i}`;
+
+  function CTA({
+                 name, lat, lng, city, booking_query, agoda_query,
+               }: {
+    name: string; lat?: number; lng?: number; city: string;
+    booking_query?: string; agoda_query?: string;
+  }) {
+    const forBooking = booking_query || name;
+    const forAgoda = agoda_query || name;
+    const canMap = typeof lat === "number" && typeof lng === "number";
+    return (
+      <div className="mt-auto flex gap-2">
+        <button
+          onClick={() => openBookingSearchUnified(city, forBooking, "hotel")}
+          className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition"
+        >
+          Booking으로 예약
+        </button>
+        <button
+          onClick={() => openAgodaSearchUnified(city, forAgoda, "hotel")}
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition"
+        >
+          Agoda 검색
+        </button>
+        <button
+          onClick={() => (canMap ? openGoogleMapHotel(city, name, lat!, lng!, "hotel") : null)}
+          disabled={!canMap}
+          aria-disabled={!canMap}
+          className="text-xs px-2.5 py-1.5 rounded-lg border text-gray-700 border-gray-200 hover:bg-gray-50 inline-flex items-center gap-1 disabled:opacity-50"
+          title={!canMap ? "좌표 정보 없음" : "지도 열기"}
+        >
+          <Globe size={12} />
+          지도
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-4 space-y-3">
-      <h4 className="text-sm font-bold text-violet-700">추천 호텔</h4>
-      <ul className="grid gap-3 md:grid-cols-2">
-        {list.map((h, i) => (
-          <li key={i} className="rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="text-violet-700 mt-0.5">
-                <BedDouble size={18} />
+      <div className="flex items-baseline gap-2">
+        <h4 className="text-sm font-bold text-violet-700">추천 호텔</h4>
+        <span className="text-[11px] text-gray-500">
+          근접·유사명 호텔은 150m 기준으로 묶어 대표만 보여줘요. ({list.length}곳)
+        </span>
+      </div>
+
+      {/* 대표 추천 (그대로) */}
+      {featured && (
+        <div className={cardCls}>
+          {/* 상단 라벨 영역을 카드 안쪽 왼쪽 정렬로 맞춤 */}
+          <div className="flex items-center gap-2 mb-2">
+            <Star size={16} className="text-amber-500" fill="currentColor" />
+            <span className="text-xs font-semibold text-gray-600">대표 추천</span>
+          </div>
+
+          {/* 메인 콘텐츠: 일반 카드와 완전 동일한 구조 */}
+          <div className="flex items-start gap-3 flex-1">
+            <div className="text-violet-700 mt-0.5">
+              <BedDouble size={18} />
+            </div>
+
+            <div className="flex-1 min-w-0 flex flex-col">
+              <div className="flex items-center gap-2">
+                <div className="text-base font-bold text-gray-900 truncate">
+                  {featured.name_ko || featured.name_original || "추천 호텔"}
+                </div>
+                {featured.price_tier && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getTierClass(
+                      featured.price_tier
+                    )}`}
+                  >
+              {featured.price_tier}
+            </span>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-gray-800 truncate">
-                  {h.name_ko || h.name_original}
-                </div>
-                <div className="text-[11px] text-gray-500">
-                  {h.price_tier ? `가격대: ${h.price_tier}` : null}
-                </div>
-                {h.why ? (
-                  <p className="text-sm text-gray-700 mt-1 line-clamp-3">{h.why}</p>
-                ) : null}
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => {
-                      const name = h.name_ko || h.name_original || "";
-                      openBookingSearchUnified(city, name, "hotel"); // Booking
-                      openAgodaSearchUnified(city, name, "hotel");   // Agoda
-                    }}
-                    className="text-xs px-2.5 py-1.5 rounded-lg border text-violet-700 border-violet-200 hover:bg-violet-50"
-                  >
-                    Booking으로 예약
-                  </button>
-                  <button
-                    onClick={() =>
-                      openGoogleMapHotel(
-                        city,
-                        h.name_ko || h.name_original || "",
-                        h.lat,
-                        h.lng,
-                        "hotel"
-                      )
-                    }
-                    className="text-xs px-2.5 py-1.5 rounded-lg border text-gray-700 border-gray-200 hover:bg-gray-50 inline-flex items-center gap-1"
-                  >
-                    <Globe size={12} /> 지도
-                  </button>
-                </div>
+
+              {featured.why ? <HotelWhy why={featured.why} /> : <div className="h-1" />}
+
+              {/* 👇 버튼 묶음: 일반 카드와 같은 위치(설명 아래로) */}
+              <div className="mt-3">
+                <CTA
+                  city={city}
+                  name={featured.name_ko || featured.name_original || ""}
+                  lat={featured.lat}
+                  lng={featured.lng}
+                  booking_query={featured.booking_query}
+                  agoda_query={featured.agoda_query}
+                />
               </div>
             </div>
-          </li>
-        ))}
+          </div>
+        </div>
+      )}
+
+
+      {/* 🔥 아래 카드도 가로폭 '완전 동일'(=전체폭). 그리드 대신 1열 리스트로 변경 */}
+      <ul className="space-y-3">
+        {rest.map((h, i) => {
+          const title = h.name_ko || h.name_original || "추천 호텔";
+          const displayName = h.name_ko || h.name_original || "";
+          return (
+            <li key={makeKey(h, i)} className={cardCls}>
+              <div className="flex items-start gap-3">
+                <div className="text-violet-700 mt-0.5">
+                  <BedDouble size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="font-semibold text-gray-800 truncate" title={title}>
+                      {title}
+                    </div>
+                    {h.price_tier && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getTierClass(h.price_tier)}`}>
+                        {h.price_tier}
+                      </span>
+                    )}
+                  </div>
+                  {h.why ? <HotelWhy why={h.why} /> : <div className="h-1" />}
+                </div>
+              </div>
+
+              <CTA
+                city={city}
+                name={displayName}
+                lat={h.lat}
+                lng={h.lng}
+                booking_query={h.booking_query}
+                agoda_query={h.agoda_query}
+              />
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
 }
+
 
 
 
@@ -1184,90 +1610,114 @@ function MapView({
   // base places: dayIdx/idx 보강
   // ── [교체] basePlaces: allPlaces에 dayIdx를 "가까운 정지점" 기준으로 부여 + 중복 제거
   const basePlaces = useMemo(() => {
-    const list = (allPlaces ?? []).map((p, i) => ({ ...p, idx: i + 1 })) || [];
+    const useScheduleMarkers = Array.isArray(days) && days.length > 0;
 
-    // day별 정지점 좌표 목록
-    const dayStops: Array<{ day: number; pts: Array<[number, number]> }> =
-      (days ?? []).map((d, di) => ({
-        day: di + 1,
-        pts: (d.stops ?? []).map((s) => [Number(s.lng), Number(s.lat)] as [number, number]),
-      }));
+    if (useScheduleMarkers) {
+      const out: Array<{ id: string; name: string; lat: number; lng: number; category?: string; dayIdx?: number; idx?: number }> = [];
+      const LABEL_NEAR_M = 200;   // 근처 POI 이름을 빌릴 최대 거리
+      const DEDUP_M = 50;         // 스톱 중복 제거 거리
 
-    // 가까운 정지점 찾기 (허용 반경 m)
-    const NEAR_M = 250; // 250m 이내면 같은 날로 본다
-    function nearestDay(lng: number, lat: number): number | undefined {
-      let bestDay: number | undefined;
-      let best = Infinity;
-      for (const d of dayStops) {
-        for (const [slng, slat] of d.pts) {
-          const km = haversineKm(lat, lng, slat, slng);
-          const m = km * 1000;
-          if (m < best) {
-            best = m;
-            bestDay = d.day;
+      days!.forEach((d, di) => {
+        (d?.stops ?? []).forEach((s, si) => {
+          const lat = Number(s.lat);
+          const lng = Number(s.lng);
+          if (!isFinite(lat) || !isFinite(lng)) return;
+
+          // 가까운 allPlace를 찾아 라벨/카테고리 차용
+          let label = `Day ${di + 1} 스톱 ${si + 1}`;
+          let cat: string | undefined = "일정 포인트";
+          let bestM = Infinity;
+          let best: any = null;
+
+          (allPlaces ?? []).forEach((p) => {
+            const m = haversineKm(lat, lng, Number(p.lat), Number(p.lng)) * 1000;
+            if (m < bestM) { bestM = m; best = p; }
+          });
+
+          if (best && bestM <= LABEL_NEAR_M) {
+            label = placeLabel(best as any);
+            cat = (best as any).category || cat;
           }
-        }
-      }
-      return best <= NEAR_M ? bestDay : undefined;
+
+          out.push({
+            id: `d${di + 1}-${si + 1}`,
+            name: label,
+            lat,
+            lng,
+            category: cat,
+            dayIdx: di + 1,
+          });
+        });
+      });
+
+      // 50m 이내 좌표/이름 중복 제거
+      const deduped = dedupePlaces(out.filter(Boolean) as any);
+      deduped.forEach((p: any, i: number) => (p.idx = i + 1));
+      return deduped as Array<{ id: string; name: string; lat: number; lng: number; category?: string } & { idx: number; dayIdx?: number }>;
     }
 
-    // dayIdx 부여
-    list.forEach((p) => {
-      (p as any).dayIdx = nearestDay(Number(p.lng), Number(p.lat));
-    });
+    // ⬇️ 일정 좌표가 없을 때만 fallback: 기존 allPlaces 기반
+    const fromAll = (allPlaces ?? []).map((p, i) => ({
+      id: p.id || `poi-${i + 1}`,
+      name: placeLabel(p as any),
+      lat: Number(p.lat),
+      lng: Number(p.lng),
+      category: p.category,
+      idx: i + 1,
+    }));
+    return dedupePlaces(fromAll) as Array<{ id: string; name: string; lat: number; lng: number; category?: string } & { idx: number; dayIdx?: number }>;
+  }, [days, allPlaces]);
 
-    // 동일 좌표(반경 50m) 중복 제거
-    const seen = new Map<string, true>();
-    const DEDUP_M = 50;
-    const deduped: typeof list = [];
-    for (const p of list) {
-      const key = `${Math.round(Number(p.lat) * 1e5)}:${Math.round(Number(p.lng) * 1e5)}`;
-      // 근사 라운딩 키로 빠른 중복 제거, 혹 중복이면 거리 체크
-      if (!seen.has(key)) {
-        seen.set(key, true);
-        deduped.push(p);
-        continue;
-      }
-      // 같은 키라도 실제로 50m 넘게 떨어지면 다른 포인트로 유지
-      const dup = deduped.find(
-        (q) => haversineKm(Number(p.lat), Number(p.lng), Number(q.lat), Number(q.lng)) * 1000 <= DEDUP_M
-      );
-      if (!dup) deduped.push(p);
-    }
-
-    // idx 다시 부여(중복 제거 후)
-    deduped.forEach((p, i) => ((p as any).idx = i + 1));
-    return deduped as Array<
-      { id: string; name: string; lat: number; lng: number; category?: string } & { idx: number; dayIdx?: number }
-    >;
-  }, [allPlaces, days]);
 
 
   // 도시 경계/중심 기반 필터 함수
   const insideCity = useMemo(() => {
-    // 1) BBox가 있으면 BBox(확장 25%) 기준
-    if (cityBox) {
-      const b = expandBBox(cityBox, 0.25);
-      return (lng: number, lat: number) => inBBox(lng, lat, b);
-    }
-    // 2) 중심만 있으면 반경 120km 기준
-    if (cityCenter) {
-      return (lng: number, lat: number) => haversineKm(lat, lng, cityCenter[1], cityCenter[0]) <= 120;
-    }
-    // 3) 아무것도 없으면 basePlaces의 중앙값으로 대략 중심 잡고 120km
-    if (basePlaces.length >= 2) {
+    // 여유 버퍼
+    const BBOX_PAD_RATIO = 0.60;   // 60%로 완화 (기존 0.25)
+    const AIRPORT_KEEP_KM = 40;    // 공항은 40km 이내면 포함
+    const FALLBACK_RADIUS_KM = 120;
+
+    // 미리 확장 박스 계산
+    const expanded = cityBox ? expandBBox(cityBox, BBOX_PAD_RATIO) : null;
+
+    // 중심 좌표 준비(없으면 basePlaces 중앙값)
+    let centerLng = cityCenter?.[0];
+    let centerLat = cityCenter?.[1];
+    if ((centerLng == null || centerLat == null) && basePlaces.length >= 2) {
       const lats = basePlaces.map((p) => p.lat).sort((a, b) => a - b);
       const lngs = basePlaces.map((p) => p.lng).sort((a, b) => a - b);
-      const lat = lats[Math.floor(lats.length / 2)];
-      const lng = lngs[Math.floor(lngs.length / 2)];
-      return (x: number, y: number) => haversineKm(y, x, lat, lng) <= 120;
+      centerLat = lats[Math.floor(lats.length / 2)];
+      centerLng = lngs[Math.floor(lngs.length / 2)];
     }
-    return (_lng: number, _lat: number) => true;
+
+    // 실제 판별 함수: 포인트 객체를 받아 판단
+    return (p: any) => {
+      const lng = Number(p?.lng);
+      const lat = Number(p?.lat);
+      if (!isFinite(lng) || !isFinite(lat)) return false;
+
+      // 1) 공항은 40km 이내면 무조건 포함
+      if (isAirportPoi(p) && centerLng != null && centerLat != null) {
+        const km = haversineKm(lat, lng, centerLat, centerLng);
+        if (km <= AIRPORT_KEEP_KM) return true;
+      }
+
+      // 2) 도시 bbox가 있으면 여유를 넉넉히 준 박스 기준으로 포함
+      if (expanded) return inBBox(lng, lat, expanded);
+
+      // 3) bbox가 없으면 중심 반경 120km
+      if (centerLng != null && centerLat != null) {
+        return haversineKm(lat, lng, centerLat, centerLng) <= FALLBACK_RADIUS_KM;
+      }
+
+      // 4) 최후의 수단: 전부 허용
+      return true;
+    };
   }, [cityBox, cityCenter, basePlaces]);
 
-  // 필터 적용
+// ▼ 사용부도 객체 기반으로 필터링 (기존: (lng,lat) -> boolean 이던 부분 교체)
   const places = useMemo(() => {
-    const filtered = basePlaces.filter((p) => insideCity(p.lng, p.lat));
+    const filtered = basePlaces.filter((p) => insideCity(p));
     setFilteredOutCnt(basePlaces.length - filtered.length);
     return filtered;
   }, [basePlaces, insideCity]);
@@ -1275,7 +1725,9 @@ function MapView({
   const daysFiltered = useMemo(() => {
     return (days ?? []).map((d, i) => ({
       dateOffset: d?.dateOffset ?? i,
-      stops: (d?.stops ?? []).filter((s) => insideCity(Number(s.lng), Number(s.lat))),
+      stops: (d?.stops ?? []).filter(
+        (s) => insideCity({ lng: Number(s.lng), lat: Number(s.lat), category: "" })
+      ),
     }));
   }, [days, insideCity]);
 
@@ -1556,6 +2008,7 @@ export default function Result() {
   const [loading, setLoading] = useState(true);
   const [resultData, setResultData] = useState<Recommendation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [variant, setVariant] = useState<number>(0);
 
   // 중복 호출 방지 + 취소
   const inFlightRef = useRef(false);
@@ -1587,13 +2040,12 @@ export default function Result() {
             method: "GET",
             credentials: "include",
             headers: {
-              "Accept-Language": (navigator.languages && navigator.languages[0]) || navigator.language || "ko",
+              "Accept-Language":
+                (navigator.languages && navigator.languages[0]) || navigator.language || "ko",
             },
           });
           token = CSRF_COOKIE_CANDIDATES.map(getCookie).find(Boolean) ?? null;
-        } catch {
-          /* noop */
-        }
+        } catch { /* noop */ }
       }
       return token;
     }
@@ -1605,9 +2057,7 @@ export default function Result() {
         try {
           const arr = JSON.parse(trimmed);
           return Array.isArray(arr) ? arr.map((s: any) => String(s).trim()).filter(Boolean) : [];
-        } catch {
-          /* fallthrough */
-        }
+        } catch { /* fallthrough */ }
       }
       return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
     }
@@ -1662,20 +2112,20 @@ export default function Result() {
         const returnWindow = localStorage.getItem("returnWindow") || localStorage.getItem("returnSlot") || "";
 
         if (
-          !nickname ||
-          !travelWith ||
-          actType.length === 0 ||
-          !schedule ||
-          !budget ||
-          !driving ||
-          !cont ||
-          !env ||
-          !pace
+          !nickname || !travelWith || actType.length === 0 ||
+          !schedule || !budget || !driving || !cont || !env || !pace
         ) {
           setError("입력 정보가 누락되어 추천을 불러올 수 없습니다. 처음부터 다시 시도해주세요.");
           setLoading(false);
           return;
         }
+
+        // 🔎 URL 쿼리 파라미터 읽기 (fresh/variant/avoid/new_city)
+        const fresh = params.get("fresh") || "0";
+        const variant = params.get("variant") || "0";
+        const avoid = params.get("avoid") || "";
+        const newCity = params.get("new_city") || "0";
+        const keepCity = params.get("keep_city") || "";
 
         const API = "";
         const token =
@@ -1693,6 +2143,7 @@ export default function Result() {
         const travelMonth = getTravelMonthInt(monthRaw);
         const season = monthToSeason(travelMonth);
 
+        // ✅ payload (LLM 다양화 힌트도 함께 주입)
         const payload = {
           nickname,
           preferences: {
@@ -1708,6 +2159,12 @@ export default function Result() {
             season,
             depart_window: departWindow || null,
             return_window: returnWindow || null,
+
+            // 👇 프롬프트/캐시 키 다양화 힌트
+            _variant: Number(variant) || 0,
+            _force_new_city: newCity === "1",
+            _avoid_cities: avoid ? avoid.split(",").map(s => s.trim()).filter(Boolean) : [],
+            _keep_city: keepCity || undefined,
           },
           lang: "ko",
         };
@@ -1735,7 +2192,17 @@ export default function Result() {
         console.time("recommend");
         console.log("[REQ] /api/v1/survey/recommend payload =", payload);
 
-        const res = await fetch(`${API}/api/v1/survey/recommend`, {
+        // ✅ 서버가 Query로 받도록 fresh/variant/avoid/new_city를 URL에 붙임
+        const qs = new URLSearchParams();
+        if (fresh)   qs.set("fresh", fresh);
+        if (variant) qs.set("variant", variant);
+        if (avoid)   qs.set("avoid", avoid);
+        if (newCity) qs.set("new_city", newCity);
+        if (keepCity) qs.set("keep_city", keepCity);
+
+        const url = `${API}/api/v1/survey/recommend${qs.toString() ? "?" + qs.toString() : ""}`;
+
+        const res = await fetch(url, {
           method: "POST",
           headers,
           credentials: useCookieAuth ? "include" : "same-origin",
@@ -1758,12 +2225,33 @@ export default function Result() {
         console.log("[RES] raw head =", raw.slice(0, 300));
 
         if (!res.ok) {
+          if (res.status === 422) {
+            try {
+              const j = JSON.parse(raw);
+              const min =
+                j?.detail?.budget?.min_estimated_krw ??
+                j?.detail?.budget?.minRequiredKRW;
+              const msg =
+                j?.detail?.message ||
+                "예산이 부족합니다. 일정 생성을 위해 예산을 조금만 올려주세요.";
+              const nice =
+                `💸 ${msg}` +
+                (typeof min === "number" ? `\n최소 필요 예산: ₩${min.toLocaleString()}` : "");
+              throw new Error(nice);
+            } catch {
+              throw new Error(`예산이 부족하여 일정을 만들 수 없어요.\n(422 Unprocessable Entity)`);
+            }
+          }
           throw new Error(`서버 응답 오류: ${res.status} ${res.statusText}${raw ? `\n${raw}` : ""}`);
         }
 
         let parsed: any = null;
         try {
           parsed = raw ? JSON.parse(raw) : null;
+          console.log(
+            "[DBG] parsed sample item =",
+            JSON.stringify((Array.isArray(parsed) ? parsed[0] : parsed?.data?.[0] || null), null, 2)
+          );
         } catch (e) {
           console.error("❌ JSON 파싱 실패:", e);
           throw new Error("응답을 JSON으로 파싱하지 못했습니다.");
@@ -1778,14 +2266,12 @@ export default function Result() {
           if (firstArrayKey) list = (parsed as any)[firstArrayKey];
         }
 
-        // ⬇️ Result 컴포넌트의 normalized 만들던 부분 교체/보강
         const normalized: Recommendation[] = (list || []).map((it) => {
           const hotelsFromVarious =
             (it?.lodging?.hotels && Array.isArray(it.lodging.hotels) ? it.lodging.hotels : null) ??
             (Array.isArray(it?.hotels) ? it.hotels : null) ??
             (Array.isArray(it?.accommodations) ? it.accommodations : null);
 
-          // 🔽 여기에서 먼저 중복 제거
           const hotelsDeduped = hotelsFromVarious ? dedupeHotels(hotelsFromVarious, { byMeters: 150 }) : undefined;
 
           const lodgingArea =
@@ -1801,6 +2287,7 @@ export default function Result() {
             country: it.country ?? it.nation ?? "",
             reason: it.reason ?? it.explain ?? "",
             lodging_area: lodgingArea || "",
+            meta: it.meta ?? undefined, // budget 메타 보존
             lodging: hotelsDeduped
               ? { hotels: hotelsDeduped, areas: it?.lodging?.areas ?? [] }
               : (it?.lodging ?? undefined),
@@ -1809,6 +2296,7 @@ export default function Result() {
             days: it.days ?? undefined,
           };
         });
+
         const normalizedFixed = normalized.map(enforceLodgingSecondFrontend);
         const deduped = dedupeRecs(normalizedFixed);
 
@@ -1830,7 +2318,9 @@ export default function Result() {
       unmounted = true;
       abortRef.current?.abort();
     };
-  }, [cont, env, pace, monthRaw]);
+    // ⬇⬇⬇ 쿼리스트링 변화에 반응하도록 search 포함
+  }, [cont, env, pace, monthRaw, search]);
+
 
   const copyItinerary = async (rec: Recommendation) => {
     try {
@@ -1846,24 +2336,49 @@ export default function Result() {
     setError(null);
     window.location.reload();
   };
+  // ✅ 같은 조건으로 새로 추천: 동일 도시 가능, 코스/호텔만 다양화
+  const regenSameCity = (currentCity?: string) => {
+    const p = new URLSearchParams(search);
+    p.set("fresh", "1");
+    p.set("variant", String(Date.now() % 100000));
+    if (currentCity) p.set("keep_city", currentCity);  // 👈 현재 도시 이름 유지용
+    p.delete("avoid");
+    p.delete("new_city");
+    nav(`/result?${p.toString()}`);
+  };
+
+  // ✅ 완전 다른 곳 추천: 현재 카드의 도시를 회피 + new_city 플래그
+  const regenNewCity = (avoidCity: string) => {
+    const p = new URLSearchParams(search);
+    p.set("fresh", "1");
+    p.set("variant", String(Date.now() % 100000));
+    p.set("new_city", "1");                                      // 다른 도시 유도
+    p.set("avoid", avoidCity);                                   // 백엔드에서 _avoid_cities 로 주입됨
+    nav(`/result?${p.toString()}`);
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#FFF4FD] to-[#FEF7EC] px-4 py-10 flex flex-col items-center">
-      <ResultHero duration={durationKR} budget={budgetKR} transport={transport} month={monthKR} />
+      <ResultHero duration={durationKR} budget={budgetKR} transport={transport} month={monthKR}/>
+      <div className="w-full max-w-3xl flex items-center justify-end gap-2 mb-3">
+      </div>
 
       {loading ? (
-        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2 }} className="text-[#3F30C4] mb-8">
-          <div className="w-12 h-12 border-4 border-violet-300 border-t-transparent rounded-full animate-spin" />
+        <motion.div animate={{rotate: 360}} transition={{repeat: Infinity, duration: 1.2}}
+                    className="text-[#3F30C4] mb-8">
+          <div className="w-12 h-12 border-4 border-violet-300 border-t-transparent rounded-full animate-spin"/>
         </motion.div>
       ) : error ? (
         <div className="max-w-xl w-full text-center text-red-600 flex flex-col items-center gap-3">
-          <TriangleAlert size={40} />
+          <TriangleAlert size={40}/>
           <p className="whitespace-pre-wrap">{error}</p>
           <div className="flex gap-3 justify-center mt-1">
             <button onClick={retry} className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
               다시 시도
             </button>
-            <button onClick={() => nav("/login")} className="px-4 py-2 rounded-lg border border-violet-300 text-[#6C3DF4] hover:bg-violet-50">
+            <button onClick={() => nav("/login")}
+                    className="px-4 py-2 rounded-lg border border-violet-300 text-[#6C3DF4] hover:bg-violet-50">
               로그인으로
             </button>
           </div>
@@ -1875,39 +2390,54 @@ export default function Result() {
           )}
 
           {resultData?.map((rec, index) => {
-            const days = Object.entries(rec.schedule);
+            const days = Object.entries(rec.schedule).sort(([a], [b]) => {
+              const an = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+              const bn = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+              return an - bn || a.localeCompare(b);
+            });
             const lodgingPick = pickLodging(rec);
             return (
               <article
                 key={`${rec.city}-${rec.country}-${index}`}
                 className="p-6 rounded-2xl bg-white border border-violet-100 shadow-[0_8px_30px_rgba(80,0,200,0.06)]"
               >
+                {/* 💸 예산 부족 메타 경고 */}
+                <div className="mb-3">
+                  <BudgetAlert meta={rec.meta}/>
+                </div>
+
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-extrabold text-[#3F30C4]">
                       {rec.city}, {rec.country}
                     </h2>
                     <p className="text-gray-700 mt-1 leading-relaxed">{rec.reason}</p>
-                    <MetaChips duration={durationKR} budget={budgetKR} transport={transport} month={monthKR} />
-                    {/* 🏨 숙소 추천 블록 */}
-                    {(() => {
-                      // 백엔드가 mode 주면 우선 사용, 없으면 호텔 2개 이상 여부로 추론
-                      const hotelsLen = rec.lodging?.hotels?.length ?? 0;
-                      const mode: "hotels" | "area" =
-                        (rec.lodging as any)?.mode ?? (hotelsLen >= 2 ? "hotels" : "area");
 
-                      if (mode === "hotels" && hotelsLen > 0) {
-                        // 호텔 카드(2~3개) + (선택) 대표 한 줄 CTA
-                        return (
-                          <>
-                            <HotelCards city={rec.city} hotels={rec.lodging?.hotels} />
-                            <LodgingSection city={rec.city} pick={lodgingPick} />
-                          </>
-                        );
+                    {/* 최소 일정 모드 뱃지 */}
+                    {rec.meta?.budget?.ok === false ? (
+                      <div
+                        className="inline-flex items-center gap-1 mt-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        최소 일정 모드
+                      </div>
+                    ) : null}
+
+                    <MetaChips duration={durationKR} budget={budgetKR} transport={transport} month={monthKR}/>
+                    <BudgetSummary budgetMeta={rec.meta?.budget} userBudgetKRWRaw={budgetKR}/>
+
+                    {/* 🏨 숙소 추천 블록 — 항상 상세형 우선 */}
+                    {(() => {
+                      const hotels = rec.lodging?.hotels ?? [];
+
+                      // ✅ 호텔이 1개라도 있으면 상세형 카드로 고정
+                      if (hotels.length > 0) {
+                        return <HotelCards city={rec.city} hotels={hotels} />;
                       }
-                      // 권역(시내 중심 등) 한 줄 폴백
+
+                      // ↪️ 호텔이 전혀 없을 때만 권역(간단형)으로 폴백
                       return <LodgingSection city={rec.city} pick={lodgingPick} />;
                     })()}
+
+
 
                   </div>
 
@@ -1918,7 +2448,7 @@ export default function Result() {
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border text-sm text-violet-700 border-violet-200 hover:bg-violet-50"
                       title="항공권 검색"
                     >
-                      <PlaneTakeoff size={16} />
+                      <PlaneTakeoff size={16}/>
                       항공권 검색
                     </button>
 
@@ -1928,7 +2458,7 @@ export default function Result() {
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border text-sm text-violet-700 border-violet-200 hover:bg-violet-50"
                       title="일정 복사"
                     >
-                      <Copy size={16} />
+                      <Copy size={16}/>
                       일정 복사
                     </button>
                   </div>
@@ -1936,7 +2466,7 @@ export default function Result() {
 
                 <div className="mt-2">
                   {days.map(([dayKey, acts], i) => (
-                    <DaySection key={dayKey} title={dayLabel(dayKey)} activities={acts} defaultOpen={i === 0} />
+                    <DaySection key={dayKey} title={dayLabel(dayKey)} activities={acts} defaultOpen={i === 0}/>
                   ))}
                 </div>
 
@@ -1959,16 +2489,46 @@ export default function Result() {
                   }
                 />
 
-                <div className="flex gap-3 mt-6">
-                  <button onClick={() => nav(-1)} className="text-[#6C3DF4] flex items-center gap-1 px-3 py-2 border border-violet-300 rounded-xl hover:bg-violet-50">
-                    <CircleArrowLeft />
+                <div className="flex flex-wrap gap-2 mt-6">
+                  {/* 🔄 같은 조건으로 새로 추천 (도시는 유지, 코스/숙소 다양화) */}
+                  <button
+                    type="button"
+                    onClick={() => regenSameCity(rec.city)}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border text-sm text-violet-700 border-violet-200 hover:bg-violet-50"
+                    title="동일 조건으로 다른 코스 제안"
+                  >
+                    <RefreshCw size={16}/>
+                    다시 추천받기
+                  </button>
+
+                  {/* 🔀 완전 다른 곳 추천 (현재 도시 회피 + new_city) */}
+                  <button
+                    type="button"
+                    onClick={() => regenNewCity(`${rec.city}`)}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm hover:bg-violet-700"
+                    title="완전 다른 도시로 추천"
+                  >
+                    <Shuffle size={16}/>
+                    완전 다른 곳 보기
+                  </button>
+
+                  {/* 기존 내비게이션 */}
+                  <button
+                    onClick={() => nav('/step-time')}   // ← nav(-1) 대신 명시 경로
+                    className="ml-auto text-[#6C3DF4] flex items-center gap-1 px-3 py-2 border border-violet-300 rounded-xl hover:bg-violet-50"
+                  >
+                    <CircleArrowLeft/>
                     뒤로가기
                   </button>
-                  <button onClick={() => nav("/")} className="text-[#6C3DF4] flex items-center gap-1 px-3 py-2 border border-violet-300 rounded-xl hover:bg-violet-50">
-                    <Home />
+                  <button
+                    onClick={() => nav("/")}
+                    className="text-[#6C3DF4] flex items-center gap-1 px-3 py-2 border border-violet-300 rounded-xl hover:bg-violet-50"
+                  >
+                    <Home/>
                     처음으로
                   </button>
                 </div>
+
               </article>
             );
           })}

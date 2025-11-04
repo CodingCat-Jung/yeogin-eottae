@@ -150,7 +150,7 @@ export default function Step2() {
           {/* 하단 버튼 */}
           <div className="mt-8 flex justify-between items-center">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate('/month')}
               className="text-[#6C3DF4] flex items-center gap-1 px-4 py-2 text-sm hover:opacity-80 transition"
             >
               <ArrowLeft size={18} />
