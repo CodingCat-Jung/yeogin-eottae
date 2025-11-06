@@ -1,7 +1,7 @@
 # app/services/schedule_guard.py
 from __future__ import annotations
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 Activity = Dict[str, str]
 DayPlan = Dict[str, Any]  # {"day": "day_1", "activities": [Activity, ...]}
@@ -85,7 +85,34 @@ def schedule_array_to_map(arr: List[DayPlan]) -> Dict[str, List[Activity]]:
     return out
 
 
-# ──────────────── 아주 기본적인 가드 ────────────────
+# ──────────────── 한글 day 키 정규화 ────────────────
+_KO_DAY_RE = re.compile(r"^\s*(\d+)\s*일\s*차\s*$", re.IGNORECASE)
+
+def _ko_to_daykey(key: str) -> str:
+    """'1일차' → 'day_1', 그 외는 되도록 'day_N' 형태로."""
+    if not key:
+        return "day_1"
+    m = _KO_DAY_RE.match(key)
+    if m:
+        return f"day_{int(m.group(1))}"
+    low = key.strip().lower()
+    if low.startswith("day_"):
+        return low
+    m2 = re.search(r"(\d+)", low)
+    return f"day_{int(m2.group(1))}" if m2 else "day_1"
+
+
+def normalize_schedule_keys_to_day(schedule_map: Dict[str, List[Activity]]) -> Dict[str, List[Activity]]:
+    """{'1일차':[...], 'Day2':[...]} → {'day_1':[...], 'day_2':[...]}"""
+    out: Dict[str, List[Activity]] = {}
+    for k, v in (schedule_map or {}).items():
+        if isinstance(v, list):
+            out[_ko_to_daykey(k)] = v
+    # 키 정렬 보장
+    return dict(sorted(out.items(), key=lambda kv: _day_index(kv[0])))
+
+
+# ──────────────── 아주 기본적인 가드(시간) ────────────────
 def guard_schedule(
     schedule: Any,
     *,
@@ -170,3 +197,116 @@ def guard_schedule(
         arr[-1]["activities"] = fixed
 
     return arr
+
+
+# ──────────────── 외부에서 쓰기 편한 래퍼 ────────────────
+def guard_and_normalize_map(
+    schedule: Any,
+    *,
+    days: int,
+    depart_window: str | None = None,
+    return_window: str | None = None,
+    density: str | None = None,
+) -> Dict[str, List[Activity]]:
+    """
+    guard_schedule → {'day_1':[...]} 맵으로 정규화해 반환.
+    한글 day 키/혼합 포맷을 'day_N' 포맷으로 통일.
+    """
+    arr = guard_schedule(
+        schedule,
+        days=days,
+        depart_window=depart_window,
+        return_window=return_window,
+        density=density,
+    )
+    m = schedule_array_to_map(arr)
+    return normalize_schedule_keys_to_day(m)
+
+
+# ──────────────── 활동 텍스트 → 장소 매칭 빌더 ────────────────
+def _norm_text(s: str) -> str:
+    return re.sub(r"[()\s]", "", (s or "").lower())
+
+
+def _best_match_place(activity: str, places: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    activity 문장과 places의 이름(display_name/name_ko/name_original) 부분일치로 매칭.
+    가장 긴 일치 길이를 선택(오탐 감소).
+    """
+    a = _norm_text(activity)
+    best = None
+    best_len = 0
+    for p in places or []:
+        for key in ("display_name", "name_ko", "name_original"):
+            name = _norm_text(p.get(key) or "")
+            if name and name in a and len(name) > best_len:
+                best, best_len = p, len(name)
+    return best
+
+
+def build_days_from_schedule(
+    schedule_map: Dict[str, List[Activity]],
+    all_places: List[Dict[str, Any]] | None,
+    lodging_anchor: Dict[str, Any] | None = None,
+    days_count: int | None = None,
+) -> List[Dict[str, Any]]:
+    """
+    schedule_map(day_1→activities) 기반으로 days[*].stops 좌표 재구성.
+    매칭 실패 시 lodging_anchor(호텔/에어리어 첫 항목)로 폴백.
+    """
+    smap = normalize_schedule_keys_to_day(schedule_map or {})
+    if days_count:
+        smap = dict(list(smap.items())[:days_count])
+
+    anchor = lodging_anchor or {}
+    out: List[Dict[str, Any]] = []
+    idx = 0
+    for _, acts in smap.items():
+        coords = []
+        for it in acts or []:
+            p = _best_match_place(it.get("activity", ""), all_places or [])
+            if p and "lat" in p and "lng" in p:
+                coords.append({"lat": p["lat"], "lng": p["lng"]})
+            elif anchor and "lat" in anchor and "lng" in anchor:
+                coords.append({"lat": anchor["lat"], "lng": anchor["lng"]})
+        out.append({"dateOffset": idx, "stops": coords})
+        idx += 1
+    return out
+
+
+# ──────────────── 무결성 검사(선택 사용) ────────────────
+def validate_consistency(
+    schedule_map: Dict[str, List[Activity]],
+    days_struct: List[Dict[str, Any]],
+    *,
+    ratio_threshold: float = 0.6,
+) -> Tuple[bool, List[Dict[str, Any]]]:
+    """
+    schedule vs days 정합성 검증.
+    - day별로 (stops 수 / activities 수) 비율이 ratio_threshold 이상인지 확인.
+    - 실패 항목은 warnings에 누적.
+    반환: (ok, warnings)
+    """
+    smap = normalize_schedule_keys_to_day(schedule_map or {})
+    # 키 순서대로 배열화
+    arr = [{"day": k, "activities": v} for k, v in smap.items()]
+    warnings: List[Dict[str, Any]] = []
+    ok = True
+
+    for i, d in enumerate(arr):
+        acts = d.get("activities") or []
+        stops = days_struct[i]["stops"] if i < len(days_struct) else []
+        act_cnt = len(acts)
+        stop_cnt = len(stops or [])
+        ratio = (stop_cnt / act_cnt) if act_cnt else 0.0
+        if act_cnt == 0 or ratio < ratio_threshold:
+            ok = False
+            warnings.append({
+                "day": d.get("day"),
+                "code": "LOW_MATCH_RATIO" if act_cnt else "EMPTY_ACTIVITIES",
+                "activities": act_cnt,
+                "stops": stop_cnt,
+                "ratio": round(ratio, 3),
+                "threshold": ratio_threshold,
+            })
+    return ok, warnings

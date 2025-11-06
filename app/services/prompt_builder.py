@@ -1,10 +1,11 @@
 # app/services/prompt_builder.py
 import re
+import json
 from typing import Tuple, Optional
 
-# ───────────────────────────────────────────────
+
 # 기본 유틸
-# ───────────────────────────────────────────────
+
 def _extract_days(duration: str) -> int:
     """'2night 3days', '3일', '1박 2일' 등에서 일(day) 수 추출."""
     if not duration:
@@ -86,9 +87,9 @@ def _evening_rule_text(density: Optional[str]) -> str:
     return "일반일(day_2~day_{N-1})에는 '저녁 식사' 또는 '야경/전망대' 중 1개를 포함하고, 종료는 20:00~20:30."
 
 
-# ───────────────────────────────────────────────
+
 # 월/계절 가이드
-# ───────────────────────────────────────────────
+
 def _month_to_season(m: Optional[int]) -> Optional[str]:
     if not m:
         return None
@@ -114,9 +115,45 @@ def _season_rule_text(season: Optional[str]) -> str:
     return "계절 정보 미지정: 일반 가이드를 적용한다."
 
 
-# ───────────────────────────────────────────────
+
+# 예산 파싱 유틸 (속도 영향 0)
+
+def _parse_budget_krw(budget: str | int | None) -> int:
+    """'₩100,000', '100000', '10만', '100k' 등의 입력을 KRW 정수로 파싱."""
+    if budget is None:
+        return 0
+    if isinstance(budget, int):
+        return budget
+    s = str(budget).lower().replace(",", "").replace("₩", "").replace("원", "").strip()
+    if "만" in s:
+        try:
+            n = float(s.split("만")[0])
+            return int(n * 10000)
+        except Exception:
+            pass
+    if s.endswith("k"):
+        try:
+            return int(float(s[:-1]) * 1000)
+        except Exception:
+            pass
+    digits = "".join(ch for ch in s if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _days_from_duration(duration: str | None) -> int:
+    if not duration:
+        return 3
+    d = str(duration).lower()
+    for k, v in (("1박2일", 2), ("2박3일", 3), ("3박4일", 4), ("4박5일", 5)):
+        if k in d:
+            return v
+    m = re.search(r"(\d+)\s*일", d)
+    return max(1, int(m.group(1))) if m else 3
+
+
+
 # 메인 프롬프트 생성 (개수 중립)
-# ───────────────────────────────────────────────
+
 def generate_prompt_from_survey(prefs) -> str:
     """
     Gemini에 전달할 초정밀 프롬프트 (최상위 배열만).
@@ -141,6 +178,9 @@ def generate_prompt_from_survey(prefs) -> str:
     climate   = getattr(prefs, "climate", "")
     continent = getattr(prefs, "continent", "")
 
+    city = getattr(prefs, "city", "")
+    country = getattr(prefs, "country", "")
+
     travel_month = getattr(prefs, "travel_month", None)
     try:
         tm_int = int(travel_month)
@@ -155,7 +195,34 @@ def generate_prompt_from_survey(prefs) -> str:
     season_line = f"- 여행 시기: {str(travel_month)+'월' if travel_month else '미지정'} / 계절: {season or '미지정'}"
     season_rules = _season_rule_text(season)
 
-    return f"""
+    # ── 예산 제약 블록 ─────────────────────────
+    budget_krw = _parse_budget_krw(budget)
+    days_hint = _days_from_duration(getattr(prefs, "duration", None))
+    per_day_hint = (budget_krw // max(1, days_hint)) if budget_krw > 0 else 0
+
+    budget_block = f"""
+[예산 제약 — 매우 중요, 위반 금지]
+- 총 여행 예산(항공권/비자/보험 제외; 현지 숙박/식비/교통/입장료 중심): **{budget_krw} KRW**.
+- 가능하면 1일 기준 예산 가이드(참고치): **~{per_day_hint} KRW/일**을 넘기지 않는다.
+- 예산을 초과할 것 같으면 우선순위로 다음을 적용한다:
+  1) 무료/저가 명소 위주로 재구성(공원/시장/거리 산책/전망 포인트 등)
+  2) 유료 체험·고가 레스토랑 제외 또는 동일 카테고리의 저가 대안으로 교체
+  3) 도보/대중교통 위주 이동
+  4) 숙소는 게스트하우스/호스텔/예산형 구역 제안(구역명만 제시해도 됨)
+- 💡 **예산이 터무니없이 부족한 경우**:
+  - "예산이 부족합니다. 최소 비용 기준으로 구성합니다." 라는 안내 문장을 포함하고,
+  - 가능한 한 최소 일정(대표 명소 1~2곳 + 간단한 식사/숙소)만 제시한다.
+  - 이 경우 meta.budget.ok=false 와 meta.budget.minRequiredKRW를 반드시 포함한다.
+""".strip()
+
+    # (선택) 가성비 모드 힌트 (_frugal_mode가 서버에서 넘어올 수 있음)
+    if getattr(prefs, "_frugal_mode", False):
+        budget_block += """
+- [가성비 모드] 유료 입장 최소화, 무료 명소/산책/전통 시장/전망 포인트 위주. 식사는 현지 저가/캐주얼 위주.
+""".rstrip()
+
+    # ── 본문 프롬프트(기존) ────────────────────────────────
+    base_prompt = f"""
 당신은 전 세계를 여행한 경험이 풍부한 최고의 여행 컨설턴트입니다.
 **너는 한국어만 사용해야돼.**
 아래 사용자의 선호를 반영하여 {days}일 일정에 적합한 세계 도시를 한국어로 추천하고,
@@ -191,58 +258,92 @@ def generate_prompt_from_survey(prefs) -> str:
 
 [일정 구성 가이드]
 - 각 날 3~5개 활동(느긋 2~3개, 활동적 4~5개).
+- **1일차 맨 앞에는 무조건** `"공항 도착 → 시내 이동 → 숙소 체크인/짐 풀기"` 블록을 포함한다.
 - 활동 필드: "time"(HH:MM-HH:MM), "activity"(설명)
 - 이동수단 괄호 표기 예: (도보), (지하철), (버스), (택시), (렌터카)
 - 하루 1회 포토 스팟 / 1회 음식점 / 1회 문화 체험 포함.
-<<<<<<< HEAD
-- 식사 일정은 가능하면 실제 존재하는 식당 이름 포함 (자신 없으면 일반 범주로).
-=======
-- 식사 일정은 실제 존재하는 식당 이름 포함 (구글 평점 4.3↑).
+- 식사 일정은 실제 존재하는 식당 이름 포함 (구글 평점 4.3↑) 자신 없으면 '카테고리형'으로 표기해도 된다.
 - 출력 activity에는 반드시 `"저녁: Ramiro ★4.6 (해산물 레스토랑, 도보)"` 같은 형식을 사용한다.
->>>>>>> 19298fea2a6dc97f06b8b204cf9d7e85043c9cb8
-- 마지막 날은 공항 이동/체크아웃/귀국 준비 반영.
 - 동선을 최적화하고 불필요한 이동을 최소화한다.
+
+[공항 포함 규칙 — 매우 중요]
+- "공항 도착", "공항 이동", "출국", "귀국" 등 공항 관련 문장이 일정에 포함되어 있다면,
+  **반드시 allPlaces 배열에 해당 공항 정보를 포함해야 한다.**
+- 공항 이름 지정 우선순위:
+  1) "{city} International Airport"
+  2) "{country} 주요 공항"
+  3) 일반 표현: "지역 공항" (좌표 생략 가능)
+- category는 반드시 "airport"로 설정하고, name_original, name_ko 모두 포함해야 한다.
+- **반드시 공항은 항상 1일차의 stops[0], 마지막 날의 stops[-1]에 위치해야 한다**.
+- 예시:
+  {{"id":"vienna_airport","name_original":"Vienna International Airport","name_ko":"비엔나 국제공항","category":"airport","lat":48.1159,"lng":16.5697}}
+
+
 
 [숙소 권역/호텔 추천 규칙]
 - 각 도시에 'lodging.areas' 배열과 'lodging.hotels' 배열을 생성한다.
 - 'lodging.hotels'에는 실제 검색 가능한 '정확한 호텔명'을 1개 이상 포함하라. 자신 없으면 비워둔다(모호 표현 금지).
 - areas: name_original, name_ko, lat, lng, why, budget_hint("저예산/중간/상위").
-- hotels: name_original(필수), name_ko(가능), why(200자 이내), price_tier("저예산/중간/상위"), lat/lng(가능), booking_query·agoda_query(선택).
+- hotels: name_original(필수, 실제 검색 가능한 정확한 호텔명), name_ko(가능), why(200자 이내),
+  price_tier("저예산/중간/상위"), lat(가능), lng(가능), booking_query·agoda_query(선택).
+  좌표는 **가능하면 포함**하되, 불확실하면 생략해도 된다. (좌표는 후처리에서 보완됨)
+- 카테고리 표준: 숙박 구역은 "숙박", 개별 호텔은 "호텔".
+
 
 [지도/경로 정보]
 - allPlaces: 장소 배열(id, name_original, name_ko, category, lat, lng)
 - days: 이동 경로(dateOffset, stops[{{lat, lng}}])
 - name_ko는 반드시 채운다.
+""".strip()
 
+    # ── 출력 형식 보강: meta.budget 선택적 포함 ──────────
+    output_block = f"""
 [출력 형식 — 매우 중요]
 - **최상위에 JSON 배열만** 반환한다. (객체 래퍼 금지, 예: {{"data": ...}} 금지)
 - 자연어/코드블록/주석 절대 금지. 쌍따옴표만 사용. 후행 쉼표 금지.
+- 각 추천 객체는 기존 스키마를 유지하되, **선택적으로** "meta.budget"을 포함해도 된다.
+- "meta.budget" 예시:
+{{
+  "meta": {{
+    "budget": {{
+      "ok": true,
+      "estimatedTotalKRW": {max(0, budget_krw - 15000)},
+      "perDayKRW": {per_day_hint if per_day_hint else 0},
+      "breakdown": {{"lodging": 45000, "meals": 30000, "transport": 8000, "activities": 15000}},
+      "notes": ["무료 명소 위주 구성", "저가 식사 중심"]
+    }}
+  }}
+}}
+- 숫자는 대략치여도 되며, **총합이 {budget_krw} KRW를 넘지 않도록** 조정한다.
+""".strip()
 
+    # ── 최종 JSON 스키마(기존) ───────────────────────────────
+    schema_block = """
 [최종 JSON 스키마 — 배열]
 [
-  {{
+  {
     "city": "string",
     "country": "string",
     "reason": "string",
     "schedule": [
-      {{
+      {
         "day": "string",
-        "activities": [{{"time":"string","activity":"string"}}]
-      }}
+        "activities": [{"time":"string","activity":"string"}]
+      }
     ],
-    "lodging": {{
+    "lodging": {
       "areas": [
-        {{
+        {
           "name_original": "string",
           "name_ko": "string",
           "lat": 0.0,
           "lng": 0.0,
           "why": "string",
           "budget_hint": "저예산|중간|상위"
-        }}
+        }
       ],
       "hotels": [
-        {{
+        {
           "name_original": "string",
           "name_ko": "string",
           "lat": 0.0,
@@ -251,15 +352,27 @@ def generate_prompt_from_survey(prefs) -> str:
           "price_tier": "저예산|중간|상위",
           "booking_query": "string",
           "agoda_query": "string"
-        }}
+        }
       ]
-    }},
+    },
     "allPlaces": [
-      {{"id":"string","name_original":"string","name_ko":"string","category":"string","lat":0.0,"lng":0.0}}
+      {"id":"string","name_original":"string","name_ko":"string","category":"string","lat":0.0,"lng":0.0}
     ],
     "days": [
-      {{"dateOffset":0,"stops":[{{"lat":0.0,"lng":0.0}}]}}
+      {"dateOffset":0,"stops":[{"lat":0.0,"lng":0.0}]}
     ]
-  }}
+  }
 ]
 """.strip()
+
+    # 사용자 선호 JSON(모델 참고용)
+    user_json = json.dumps(getattr(prefs, "__dict__", {}), ensure_ascii=False)
+
+    # ── 최종 프롬프트 조립 ────────────────────────────────────
+    return (
+        f"{base_prompt}\n\n"
+        f"{budget_block}\n\n"
+        f"{output_block}\n\n"
+        f"{schema_block}\n\n"
+        f"[사용자 선호(원본 JSON)] {user_json}"
+    )

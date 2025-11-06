@@ -29,7 +29,7 @@ from app.api.v1.endpoints import survey as survey
 from app.api.v1.endpoints import recommendation as recommendation
 from app.api.v1.endpoints import savebox as savebox  # 보관함/위시리스트
 from app.api.v1.endpoints import upload as upload    # ✅ 업로드 라우터 추가
-
+from app.api.v1.endpoints import emergency as emergency   # ✅ 긴급 연락망 라우터 추가
 from app.core.logging import setup_logging
 setup_logging()
 
@@ -109,6 +109,7 @@ api.include_router(survey.router,         prefix="/api/v1/survey", tags=["survey
 api.include_router(recommendation.router, prefix="/api",           tags=["recommendation"])
 api.include_router(savebox.router,        prefix="/api",           tags=["savebox"])
 api.include_router(upload.router,         prefix="/api",           tags=["upload"])  # ✅ 업로드 라우터 등록
+api.include_router(emergency.router, prefix="/api/v1", tags=["emergency"])  # ✅ 등록
 
 # 10) 헬스체크
 @api.get("/health")
